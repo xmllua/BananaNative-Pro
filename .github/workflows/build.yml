@@ -26,26 +26,30 @@ jobs:
 
     - name: Build On-Device Packer
       run: |
-        # 1. 安装 zsh 和 ninja，因为原脚本是 zsh 写的，且依赖 ninja 编译
-        sudo apt-get update
-        sudo apt-get install -y zsh ninja-build
+        # 1. 抛弃 apt，直接下载 ninja 二进制包（绕过 DNS 抽风）
+        wget -q -O ninja.zip https://github.com/ninja-build/ninja/releases/download/v1.11.1/ninja-linux.zip
+        unzip ninja.zip
+        chmod +x ninja
+        sudo mv ninja /usr/local/bin/
         
-        # 2. 设置 NDK 路径环境变量，骗过脚本
+        # 2. 设置 NDK 环境变量
         export ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME
-        
         cd android/ondevice
         
-        # 3. 终极修复：必须修改 build.sh 的死链，否则 100% 下载失败！
-        # 我们用 sed 悄悄把 3.14.6 替换成真实存在的 Python 3.11 链接
+        # 3. 把 zsh 专属语法改成 bash 兼容语法 (这就是之前 bash 报错的根源)
+        sed -i 's|HERE=${0:A:h}|HERE=$(cd "$(dirname "$0")" \&\& pwd)|g' build.sh
+        sed -i 's|W=${1:?usage: build.sh <work dir> [all|python|tools|zbic]}|W=${1:?}|g' build.sh
+        sed -i 's|local f=$W/dl/${1:t}|local f=$W/dl/$(basename "$1")|g' build.sh
+        
+        # 4. 修复死链：把 3.14.6 换成真实存在的 3.11.9
         sed -i 's|PYV=3.14.6|PYV=3.11.9|g' build.sh
         sed -i 's|python-$PYV-aarch64-linux-android.tar.gz 38bbe77d3167b5cd554e03b1021324926f09f3825202b065951dd7638e9c37e5|python-3.11.9-aarch64-linux-android.tar.gz e8f1e05d85f38a7bc0b3cf19fc3fb81a88e5928c6655c7bb1d57a7bb8c7edb64|g' build.sh
         
-        # 4. 修复 Windows 换行符
+        # 5. 修复换行符，用 bash 强行跑！
         sed -i 's/\r$//' build.sh
         chmod +x build.sh
         
-        # 5. 用原生的 zsh 执行它！
-        zsh build.sh ./work all
+        bash build.sh ./work all
 
     - name: Build with Gradle
       run: |
