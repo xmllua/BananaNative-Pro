@@ -27,10 +27,19 @@ jobs:
     - name: Build On-Device Packer
       run: |
         cd android/ondevice
-        # 修复换行符并赋权
+        
+        # 1. 检查磁盘空间
+        df -h
+        
+        # 2. 修复换行符
         sed -i 's/\r$//' build.sh
+        
+        # 3. 核心魔法：强行把 curl 后面的 -o (小写) 参数全部替换成 -O (大写)
+        # 因为原作者脚本里写的是把 URL 当文件名，用 -O 才会自动识别真实文件名
+        sed -i 's/curl \(.*\)-o .*/curl \1-O/g' build.sh
+        sed -i 's/-o \.\/work\/dl\/https[^ ]*/-O/g' build.sh
+        
         chmod +x build.sh
-        # 执行脚本
         bash build.sh ./work all
 
     - name: Build with Gradle
