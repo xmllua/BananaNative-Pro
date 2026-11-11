@@ -20,32 +20,27 @@ jobs:
         rm -f ~/.android/debug.keystore
         keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "C=US, O=Android, CN=Android Debug"
 
-    # 2. 批量打性能补丁（能打就打，打不上或已打过就跳过，绝不中断构建）
+    # 2. 性能补丁：只检查并报告，不实际应用（避免 --3way 失败污染工作区留下冲突标记导致编译失败）
+    #    需要的补丁已直接改在代码里，或经确认已包含/不适用，这里只做检查记录
     - name: Apply Performance Patches
       run: |
-        echo "正在尝试应用性能补丁..."
+        echo "检查性能补丁状态（不实际应用，避免污染源码）..."
         declare -A prs=(
-          [83]="FP16 快速数学运算开关 (提帧数神器)"
-          [56]="NDSR 色彩曲线修复 (修画面过亮)"
+          [83]="FP16 快速数学运算开关"
+          [56]="NDSR 色彩曲线修复"
           [55]="Vulkan 渲染管线底层优化"
           [156]="修复画面撕裂与帧错乱"
         )
         for n in "${!prs[@]}"; do
           echo "==> PR #$n: ${prs[$n]}"
           wget -q "https://git.eden-emu.dev/moceure/BananaNative/pulls/${n}.patch" -O "pr${n}.patch" || { echo "下载失败，跳过"; continue; }
-          if ! [ -s "pr${n}.patch" ]; then echo "补丁为空，跳过"; continue; fi
+          if ! [ -s "pr${n}.patch" ]; then echo "补丁为空"; continue; fi
           if git apply --reverse --check "pr${n}.patch" 2>/dev/null; then
-            echo "✅ 补丁已包含在当前代码中，跳过"
-            continue
-          fi
-          if git apply --check "pr${n}.patch" 2>/dev/null; then
-            git apply "pr${n}.patch" && echo "✅ 已应用" || echo "⚠️ 应用失败，跳过"
+            echo "✅ 已包含在当前代码中"
+          elif git apply --check "pr${n}.patch" 2>/dev/null; then
+            echo "ℹ️ 可以应用（但本构建不应用，保持源码干净）"
           else
-            if git apply --3way "pr${n}.patch" 2>/dev/null; then
-              echo "✅ 已通过3way应用"
-            else
-              echo "⚠️ 补丁与当前代码不匹配（可能已合入或行号已变），跳过（构建继续）"
-            fi
+            echo "⚠️ 与当前代码不匹配，跳过（不影响构建）"
           fi
         done
 
