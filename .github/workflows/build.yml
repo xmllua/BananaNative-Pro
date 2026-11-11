@@ -1,4 +1,4 @@
-name: Build Translated APK
+name: Build Translated APK with Fixed Signature
 
 on:
   push:
@@ -19,6 +19,14 @@ jobs:
 
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
+
+    - name: 生成固定签名证书 (仅首次编译产生，以后每次都一样)
+      run: |
+        if [ ! -f my-release-key.jks ]; then
+          keytool -genkey -v -keystore my-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias my-alias -storepass 123456 -keypass 123456 \
+            -dname "CN=Android, OU=Android, O=Android, L=Android, S=Android, C=US"
+        fi
 
     - name: 暴力汉化 (强制替换源码文本)
       run: |
@@ -51,39 +59,39 @@ jobs:
                     filepath = os.path.join(root, file)
                     with open(filepath, "r", encoding="utf-8") as f:
                         content = f.read()
-                    
                     modified = False
                     for en, zh in translations.items():
-                        # 替换双引号
                         if f'"{en}"' in content:
                             content = content.replace(f'"{en}"', f'"{zh}"')
                             modified = True
-                        # 替换单引号
                         if f"'{en}'" in content:
                             content = content.replace(f"'{en}'", f"'{zh}'")
                             modified = True
-                        # 替换 XML 标签中间的文字
                         if f'>{en}<' in content:
                             content = content.replace(f'>{en}<', f'>{zh}<')
                             modified = True
-                            
                     if modified:
                         with open(filepath, "w", encoding="utf-8") as f:
                             f.write(content)
         print("汉化替换完成！")
         EOF
-        
         python3 translate.py
 
-    - name: Build with Gradle
+    - name: Build with Fixed Signature
       run: |
         cd android/app
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace -PnxPackEngine=fake
+        
+        # 使用我们刚刚生成的固定证书来签名
+        ./gradlew assembleDebug -PnxPackEngine=fake \
+          -Pandroid.injected.signing.store.file=$(pwd)/../../my-release-key.jks \
+          -Pandroid.injected.signing.store.password=123456 \
+          -Pandroid.injected.signing.key.alias=my-alias \
+          -Pandroid.injected.signing.key.password=123456
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-Chinese-Debug
+        name: App-Chinese-Signed-APK
         path: android/app/build/outputs/apk/debug/*.apk
