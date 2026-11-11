@@ -28,42 +28,15 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 1. 劫持 curl 命令！写一个同名脚本放到系统路径最前面
-        cat << 'EOF' > /usr/local/bin/curl
-        #!/bin/bash
-        args=("$@")
-        new_args=()
-        skip_next=false
-        for ((i=0; i<${#args[@]}; i++)); do
-            if [ "$skip_next" = true ]; then
-                skip_next=false
-                continue
-            fi
-            arg="${args[$i]}"
-            if [ "$arg" == "-o" ]; then
-                next_arg="${args[$((i+1))]}"
-                if [[ "$next_arg" == *"http://"* ]] || [[ "$next_arg" == *"https://"* ]]; then
-                    # 发现它想把网址当路径，我们直接把“畸形目录”建出来，并提取出正常文件名
-                    target_dir=$(dirname "$next_arg")
-                    filename=$(basename "$next_arg")
-                    mkdir -p "$target_dir"
-                    new_args+=("-o" "$target_dir/$filename")
-                    skip_next=true
-                    continue
-                fi
-            fi
-            new_args+=("$arg")
-        done
-        # 调用系统真正的 curl 来下载
-        exec /usr/bin/curl "${new_args[@]}"
-        EOF
-        chmod +x /usr/local/bin/curl
+        # 1. 强行建好畸形目录，防止 curl 写入失败
+        mkdir -p "work/dl/https:/www.python.org/ftp/python/3.14.6"
         
-        # 2. 仅仅修复 Windows 换行符（不改逻辑），并赋予权限
+        # 2. 强行修改 build.sh 里的死链，替换成真正能下到的 Python 版本（Python 3.12）
+        sed -i 's|https://www.python.org/ftp/python/3.14.6/python-3.14.6-aarch64-linux-android.tar.gz|https://github.com/termux/termux-packages/releases/download/python-3.12.7-1/python_3.12.7_aarch64.deb|g' build.sh
+        
         sed -i 's/\r$//' build.sh
         chmod +x build.sh
         
-        # 3. 原汁原味执行源码，绝不修改它内部任何一行！
         bash build.sh ./work all
 
     - name: Build with Gradle
