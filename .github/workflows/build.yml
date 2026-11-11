@@ -1,4 +1,4 @@
-name: Build App (Frontend Only)
+name: Build Translated APK
 
 on:
   push:
@@ -20,17 +20,64 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
 
+    - name: 暴力汉化 (强制替换源码文本)
+      run: |
+        python3 -c '
+        import os, re
+        
+        # 这里是我从你截图里扒下来的所有英文和翻译字典
+        translations = {
+            "Settings": "设置", "UPDATES": "更新", "GAME DEFAULTS": "游戏默认", 
+            "SYSTEM": "系统", "HELP": "帮助", "ABOUT": "关于",
+            "Check for updates": "检查更新", "Overlay": "悬浮窗", 
+            "On-screen controls": "屏幕虚拟按键", "Show / hide button": "显示/隐藏按钮",
+            "Controller: in-game panel": "手柄：游戏内面板", "Resolution": "分辨率",
+            "Frame rate cap": "帧率上限", "Rumble": "震动", "Use fast cores": "使用大核",
+            "Xbox button label swap": "Xbox按键互换", "Button mapping": "按键映射",
+            "Upscaler": "超分", "Dynamic resolution": "动态分辨率", 
+            "Frame generation": "帧生成", "GPU driver": "GPU驱动",
+            "Folders": "文件夹", "Storage": "存储空间", "Readiness check": "设备检查",
+            "Graphics self-test": "图形自检", "Share log": "分享日志",
+            "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开",
+            "Mario Kart World": "马力欧卡丁车：世界", "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛",
+            "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
+            "Fire Emblem Fortune\x27s Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认"
+        }
+
+        target_dir = "android/app/src/main"
+        for root, dirs, files in os.walk(target_dir):
+            for file in files:
+                if file.endswith((".kt", ".java", ".xml")):
+                    filepath = os.path.join(root, file)
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    
+                    modified = False
+                    for en, zh in translations.items():
+                        # 替换双引号里的
+                        if f\x27"{en}"\x27 in content:
+                            content = content.replace(f\x27"{en}"\x27, f\x27"{zh}"\x27)
+                            modified = True
+                        # 替换单引号里的
+                        if f"\\x27{en}\\x27" in content:
+                            content = content.replace(f"\\x27{en}\\x27", f"\\x27{zh}\\x27")
+                            modified = True
+                            
+                    if modified:
+                        with open(filepath, "w", encoding="utf-8") as f:
+                            f.write(content)
+        '
+
     - name: Build with Gradle
       run: |
         cd android/app
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         chmod +x gradlew
-        
-        # 核心魔法：加上 fake 参数，直接跳过所有底层 C++ 编译，秒出空壳包！
+        # 继续用 fake 模式极速打包
         ./gradlew assembleDebug --stacktrace -PnxPackEngine=fake
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-UI-Debug
+        name: App-Chinese-Debug
         path: android/app/build/outputs/apk/debug/*.apk
