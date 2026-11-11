@@ -19,25 +19,28 @@ jobs:
         keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "C=US, O=Android, CN=Android Debug"
 
     # 2. 批量打上大佬们的性能与修复补丁
+    #    补丁会固化到 patches/ 目录更稳定；这里仍保持每次从远端拉取，失败会报错而不是静默跳过
     - name: Apply Performance Patches
       run: |
+        set -e
         echo "正在注入各种性能补丁..."
-        
-        # #83 FP16 快速数学运算开关 (提帧数神器)
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/83.patch -O pr83.patch || true
-        if [ -s pr83.patch ]; then git apply --3way --ignore-whitespace pr83.patch || echo "⚠️ PR 83 冲突，跳过"; fi
-        
-        # #56 NDSR 色彩曲线修复 (修画面过亮)
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/56.patch -O pr56.patch || true
-        if [ -s pr56.patch ]; then git apply --3way --ignore-whitespace pr56.patch || echo "⚠️ PR 56 冲突，跳过"; fi
-        
-        # #55 Vulkan 渲染管线底层优化
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/55.patch -O pr55.patch || true
-        if [ -s pr55.patch ]; then git apply --3way --ignore-whitespace pr55.patch || echo "⚠️ PR 55 冲突，跳过"; fi
-
-        # #156 修复画面撕裂与帧错乱
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/156.patch -O pr156.patch || true
-        if [ -s pr156.patch ]; then git apply --3way --ignore-whitespace pr156.patch || echo "⚠️ PR 156 冲突，跳过"; fi
+        declare -A prs=(
+          [83]="FP16 快速数学运算开关 (提帧数神器)"
+          [56]="NDSR 色彩曲线修复 (修画面过亮)"
+          [55]="Vulkan 渲染管线底层优化"
+          [156]="修复画面撕裂与帧错乱"
+        )
+        for n in "${!prs[@]}"; do
+          echo "==> 应用 PR #$n: ${prs[$n]}"
+          wget -q "https://git.eden-emu.dev/moceure/BananaNative/pulls/${n}.patch" -O "pr${n}.patch" || { echo "⚠️ PR #$n 下载失败，跳过"; continue; }
+          if git apply --3way --ignore-whitespace "pr${n}.patch"; then
+            echo "✅ PR #$n 已应用"
+          else
+            echo "❌ PR #$n 应用失败（可能有冲突），请检查！"
+            git apply --check "pr${n}.patch" 2>/dev/null || true
+            exit 1
+          fi
+        done
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -48,7 +51,7 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
 
-    # 3. 完美汉化 (只翻译文字，绝不动核心代码)
+    # 3. 汉化 (只翻译文字，绝不动核心代码)
     - name: Translate
       run: |
         cat << 'EOF' > translate.py
@@ -56,11 +59,11 @@ jobs:
         translations = {
             "Settings": "设置", "UPDATES": "更新", "GAME DEFAULTS": "游戏默认", "SYSTEM": "系统", "HELP": "帮助", "ABOUT": "关于",
             "Check for updates": "检查更新", "Overlay": "悬浮窗", "On-screen controls": "屏幕虚拟按键", "Show / hide button": "显示/隐藏按钮",
-            "Controller: in-game panel": "手柄：游戏内面板", "Resolution": "分辨率", "Frame rate cap": "帧率上限", "Rumble": "震动", 
-            "Use fast cores": "使用大核", "Xbox button label swap": "Xbox按键互换", "Button mapping": "按键映射", "Upscaler": "超分", 
-            "Dynamic resolution": "动态分辨率", "Frame generation": "帧生成", "GPU driver": "GPU驱动", "Folders": "文件夹", 
+            "Controller: in-game panel": "手柄：游戏内面板", "Resolution": "分辨率", "Frame rate cap": "帧率上限", "Rumble": "震动",
+            "Use fast cores": "使用大核", "Xbox button label swap": "Xbox按键互换", "Button mapping": "按键映射", "Upscaler": "超分",
+            "Dynamic resolution": "动态分辨率", "Frame generation": "帧生成", "GPU driver": "GPU驱动", "Folders": "文件夹",
             "Storage": "存储空间", "Readiness check": "设备检查", "Graphics self-test": "图形自检", "Share log": "分享日志",
-            "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界", 
+            "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界",
             "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛", "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
             "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认",
             "Nearest neighbor (fastest, blocky)": "最近邻 (最快, 块状)",
@@ -73,112 +76,16 @@ jobs:
             for file in files:
                 if file.endswith((".kt", ".java", ".xml")):
                     filepath = os.path.join(root, file)
-                    with open(filepath, "r", encoding="utf-8") as f: content = f.read()
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
                     modified = False
                     for en, zh in translations.items():
                         if f'"{en}"' in content:
                             content = content.replace(f'"{en}"', f'"{zh}"')
                             modified = True
                     if modified:
-                        with open(filepath, "w", encoding="utf-8") as f: f.write(content)
-        EOF
-        python3 translate.py
-
-    # 4. 编译打包
-    - name: Build with Gradle
-      run: |
-        cd android/app
-        echo "sdk.dir=$ANDROID_HOME" > local.properties
-        chmod +x gradlew
-        ./gradlew assembleDebug -PnxPackEngine=fake
-
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
-      with:
-        name: App-Max-Performance
-        path: android/app/build/outputs/apk/debug/*.apkname: Build Ultimate Performance
-
-on:
-  push:
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-
-    # 1. 强行替换云端默认的随机测试签名，以后覆盖安装绝不冲突！
-    - name: Setup Permanent Debug Keystore
-      run: |
-        mkdir -p ~/.android
-        rm -f ~/.android/debug.keystore
-        keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "C=US, O=Android, CN=Android Debug"
-
-    # 2. 批量打上大佬们的性能与修复补丁
-    - name: Apply Performance Patches
-      run: |
-        echo "正在注入各种性能补丁..."
-        
-        # #83 FP16 快速数学运算开关 (提帧数神器)
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/83.patch -O pr83.patch || true
-        if [ -s pr83.patch ]; then git apply --3way --ignore-whitespace pr83.patch || echo "⚠️ PR 83 冲突，跳过"; fi
-        
-        # #56 NDSR 色彩曲线修复 (修画面过亮)
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/56.patch -O pr56.patch || true
-        if [ -s pr56.patch ]; then git apply --3way --ignore-whitespace pr56.patch || echo "⚠️ PR 56 冲突，跳过"; fi
-        
-        # #55 Vulkan 渲染管线底层优化
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/55.patch -O pr55.patch || true
-        if [ -s pr55.patch ]; then git apply --3way --ignore-whitespace pr55.patch || echo "⚠️ PR 55 冲突，跳过"; fi
-
-        # #156 修复画面撕裂与帧错乱
-        wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/156.patch -O pr156.patch || true
-        if [ -s pr156.patch ]; then git apply --3way --ignore-whitespace pr156.patch || echo "⚠️ PR 156 冲突，跳过"; fi
-
-    - name: Set up JDK 17
-      uses: actions/setup-java@v4
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-
-    - name: Setup Android SDK
-      uses: android-actions/setup-android@v4
-
-    # 3. 完美汉化 (只翻译文字，绝不动核心代码)
-    - name: Translate
-      run: |
-        cat << 'EOF' > translate.py
-        import os
-        translations = {
-            "Settings": "设置", "UPDATES": "更新", "GAME DEFAULTS": "游戏默认", "SYSTEM": "系统", "HELP": "帮助", "ABOUT": "关于",
-            "Check for updates": "检查更新", "Overlay": "悬浮窗", "On-screen controls": "屏幕虚拟按键", "Show / hide button": "显示/隐藏按钮",
-            "Controller: in-game panel": "手柄：游戏内面板", "Resolution": "分辨率", "Frame rate cap": "帧率上限", "Rumble": "震动", 
-            "Use fast cores": "使用大核", "Xbox button label swap": "Xbox按键互换", "Button mapping": "按键映射", "Upscaler": "超分", 
-            "Dynamic resolution": "动态分辨率", "Frame generation": "帧生成", "GPU driver": "GPU驱动", "Folders": "文件夹", 
-            "Storage": "存储空间", "Readiness check": "设备检查", "Graphics self-test": "图形自检", "Share log": "分享日志",
-            "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界", 
-            "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛", "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
-            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认",
-            "Nearest neighbor (fastest, blocky)": "最近邻 (最快, 块状)",
-            "Bilinear (fastest, softest)": "双线性 (最快, 最柔和)",
-            "FSR 1 (sharp, fast; too bright on Qualcomm's driver in some games)": "FSR 1 (清晰, 快; 部分游戏偏亮)",
-            "Native (sharpest, slowest)": "原生 (最清晰, 最慢)",
-            "SGSR 1 (sharp, fast, one pass)": "SGSR 1 (锐利, 快速, 单次处理)"
-        }
-        for root, dirs, files in os.walk("android/app/src/main"):
-            for file in files:
-                if file.endswith((".kt", ".java", ".xml")):
-                    filepath = os.path.join(root, file)
-                    with open(filepath, "r", encoding="utf-8") as f: content = f.read()
-                    modified = False
-                    for en, zh in translations.items():
-                        if f'"{en}"' in content:
-                            content = content.replace(f'"{en}"', f'"{zh}"')
-                            modified = True
-                    if modified:
-                        with open(filepath, "w", encoding="utf-8") as f: f.write(content)
+                        with open(filepath, "w", encoding="utf-8") as f:
+                            f.write(content)
         EOF
         python3 translate.py
 
