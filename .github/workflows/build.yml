@@ -1,4 +1,4 @@
-name: Build with FSR 3.1 or Fallback
+name: Build with FSR 3.1 and Chinese
 
 on:
   push:
@@ -11,17 +11,17 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # 1. 尝试打补丁（加入容错机制）
-    - name: Try Apply FSR 3.1 Patch (PR #151)
+    # 1. 自动下载并注入 FSR 3.1 补丁
+    - name: Apply FSR 3.1 Patch
       run: |
         echo "正在尝试下载 PR #151 补丁..."
-        # 注意这里是 pulls 而不是 pull
+        # 下载补丁文件
         wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/151.patch -O pr151.patch || true
         
         if [ -s pr151.patch ]; then
           echo "补丁下载成功，尝试应用..."
-          # 如果应用失败，不退出，只输出警告
-          git apply pr151.patch || echo "⚠️ 补丁应用失败（可能是代码冲突），将跳过 FSR 补丁。"
+          # 使用 --3way 智能合并，如果失败则输出警告并继续打包（不影响旧功能）
+          git apply --3way --ignore-whitespace pr151.patch || echo "⚠️ 补丁应用失败，可能存在代码冲突，将跳过 FSR 补丁。"
         else
           echo "⚠️ 补丁下载失败，将跳过 FSR 补丁。"
         fi
@@ -35,6 +35,7 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
 
+    # 2. 生成固定签名 (以后覆盖安装不冲突)
     - name: 生成固定签名证书
       run: |
         if [ ! -f my-release-key.jks ]; then
@@ -43,6 +44,7 @@ jobs:
             -dname "CN=Android, OU=Android, O=Android, L=Android, S=Android, C=US"
         fi
 
+    # 3. 暴力汉化
     - name: 暴力汉化
       run: |
         cat << 'EOF' > translate.py
@@ -56,7 +58,9 @@ jobs:
             "Storage": "存储空间", "Readiness check": "设备检查", "Graphics self-test": "图形自检", "Share log": "分享日志",
             "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界", 
             "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛", "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
-            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认"
+            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认",
+            # 补丁新增的选项也顺便给它汉化了
+            "FSR 3.1 (sharp, steady)": "FSR 3.1 (锐利、稳定)"
         }
         for root, dirs, files in os.walk("android/app/src/main"):
             for file in files:
@@ -73,6 +77,7 @@ jobs:
         EOF
         python3 translate.py
 
+    # 4. 编译打包 (使用固定签名)
     - name: Build with Gradle
       run: |
         cd android/app
@@ -88,5 +93,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-Chinese-Signed-FSR-Try
+        name: App-Chinese-Signed-FSR
         path: android/app/build/outputs/apk/debug/*.apk
