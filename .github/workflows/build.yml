@@ -28,11 +28,13 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 1. 打印一下磁盘空间，看看是不是被 SDK 撑爆了
+        # 1. 打印磁盘空间防爆
         df -h
         
-        # 2. 魔法防御：强行帮它建出那个带了 URL 的畸形文件夹！
-        mkdir -p "work/dl/https:/www.python.org/ftp/python/3.14.6"
+        # 2. 终极魔法：在运行前，强行修改 build.sh 里的沙雕下载逻辑！
+        # 它原本会把路径写成 "-o ./work/dl/https://..."，我们强制用 sed 删掉这个错误的路径，让 curl 自动识别文件名。
+        sed -i 's|-o \.\/work\/dl\/[^ ]*|-O|g' build.sh
+        sed -i 's|-o .*https.*|-O|g' build.sh
         
         # 3. 修复换行符并赋权
         sed -i 's/\r$//' build.sh
