@@ -28,14 +28,17 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 1. 强行创建下载目录，解决 curl 报错 (23) 的问题
-        mkdir -p work/dl
+        # 1. 打印一下磁盘空间，看看是不是被 SDK 撑爆了
+        df -h
         
-        # 2. 修复脚本换行符并赋予权限
+        # 2. 魔法防御：强行帮它建出那个带了 URL 的畸形文件夹！
+        mkdir -p "work/dl/https:/www.python.org/ftp/python/3.14.6"
+        
+        # 3. 修复换行符并赋权
         sed -i 's/\r$//' build.sh
         chmod +x build.sh
         
-        # 3. 执行编译脚本
+        # 4. 执行脚本
         bash build.sh ./work all
 
     - name: Build with Gradle
