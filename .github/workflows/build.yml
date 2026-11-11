@@ -1,4 +1,4 @@
-name: Build Translated APK with Fixed Signature
+name: Build with FSR 3.1 and Chinese
 
 on:
   push:
@@ -11,6 +11,15 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
+    # 魔法步骤：自动拉取大佬的 PR #151 补丁并打入你的代码
+    - name: Apply FSR 3.1 Patch (PR #151)
+      run: |
+        # 从原作者的服务器下载补丁文件
+        wget -q https://git.eden-emu.dev/moceure/BananaNative/pull/151.patch -O pr151.patch
+        # 尝试应用补丁 (如果没有报错，说明成功打入)
+        git apply pr151.patch || { echo "补丁应用失败，可能是原作者代码有更新，请重新导入最新代码。"; exit 1; }
+        echo "成功打上 FSR 3.1 性能补丁！"
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -20,7 +29,8 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
 
-    - name: 生成固定签名证书 (仅首次编译产生，以后每次都一样)
+    # 下面是固定签名和汉化
+    - name: 生成固定签名证书
       run: |
         if [ ! -f my-release-key.jks ]; then
           keytool -genkey -v -keystore my-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 \
@@ -28,70 +38,51 @@ jobs:
             -dname "CN=Android, OU=Android, O=Android, L=Android, S=Android, C=US"
         fi
 
-    - name: 暴力汉化 (强制替换源码文本)
+    - name: 暴力汉化
       run: |
         cat << 'EOF' > translate.py
         import os
-
         translations = {
-            "Settings": "设置", "UPDATES": "更新", "GAME DEFAULTS": "游戏默认", 
-            "SYSTEM": "系统", "HELP": "帮助", "ABOUT": "关于",
-            "Check for updates": "检查更新", "Overlay": "悬浮窗", 
-            "On-screen controls": "屏幕虚拟按键", "Show / hide button": "显示/隐藏按钮",
-            "Controller: in-game panel": "手柄：游戏内面板", "Resolution": "分辨率",
-            "Frame rate cap": "帧率上限", "Rumble": "震动", "Use fast cores": "使用大核",
-            "Xbox button label swap": "Xbox按键互换", "Button mapping": "按键映射",
-            "Upscaler": "超分", "Dynamic resolution": "动态分辨率", 
-            "Frame generation": "帧生成", "GPU driver": "GPU驱动",
-            "Folders": "文件夹", "Storage": "存储空间", "Readiness check": "设备检查",
-            "Graphics self-test": "图形自检", "Share log": "分享日志",
-            "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开",
-            "Mario Kart World": "马力欧卡丁车：世界", "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛",
-            "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
-            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", 
-            "On": "开启", "Off": "关闭", "Default": "默认"
+            "Settings": "设置", "UPDATES": "更新", "GAME DEFAULTS": "游戏默认", "SYSTEM": "系统", "HELP": "帮助", "ABOUT": "关于",
+            "Check for updates": "检查更新", "Overlay": "悬浮窗", "On-screen controls": "屏幕虚拟按键", "Show / hide button": "显示/隐藏按钮",
+            "Controller: in-game panel": "手柄：游戏内面板", "Resolution": "分辨率", "Frame rate cap": "帧率上限", "Rumble": "震动", 
+            "Use fast cores": "使用大核", "Xbox button label swap": "Xbox按键互换", "Button mapping": "按键映射", "Upscaler": "超分", 
+            "Dynamic resolution": "动态分辨率", "Frame generation": "帧生成", "GPU driver": "GPU驱动", "Folders": "文件夹", 
+            "Storage": "存储空间", "Readiness check": "设备检查", "Graphics self-test": "图形自检", "Share log": "分享日志",
+            "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界", 
+            "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛", "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
+            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认"
         }
-
-        target_dir = "android/app/src/main"
-        for root, dirs, files in os.walk(target_dir):
+        for root, dirs, files in os.walk("android/app/src/main"):
             for file in files:
                 if file.endswith((".kt", ".java", ".xml")):
                     filepath = os.path.join(root, file)
-                    with open(filepath, "r", encoding="utf-8") as f:
-                        content = f.read()
+                    with open(filepath, "r", encoding="utf-8") as f: content = f.read()
                     modified = False
                     for en, zh in translations.items():
-                        if f'"{en}"' in content:
-                            content = content.replace(f'"{en}"', f'"{zh}"')
-                            modified = True
-                        if f"'{en}'" in content:
-                            content = content.replace(f"'{en}'", f"'{zh}'")
-                            modified = True
-                        if f'>{en}<' in content:
-                            content = content.replace(f'>{en}<', f'>{zh}<')
-                            modified = True
+                        if f'"{en}"' in content: content = content.replace(f'"{en}"', f'"{zh}"'); modified = True
+                        if f"'{en}'" in content: content = content.replace(f"'{en}'", f"'{zh}'"); modified = True
+                        if f'>{en}<' in content: content = content.replace(f'>{en}<', f'>{zh}<'); modified = True
                     if modified:
-                        with open(filepath, "w", encoding="utf-8") as f:
-                            f.write(content)
-        print("汉化替换完成！")
+                        with open(filepath, "w", encoding="utf-8") as f: f.write(content)
         EOF
         python3 translate.py
 
-    - name: Build with Fixed Signature
+    - name: Build with Gradle
       run: |
         cd android/app
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         chmod +x gradlew
         
-        # 使用我们刚刚生成的固定证书来签名
+        # 使用固定证书打包
         ./gradlew assembleDebug -PnxPackEngine=fake \
           -Pandroid.injected.signing.store.file=$(pwd)/../../my-release-key.jks \
           -Pandroid.injected.signing.store.password=123456 \
-          -Pandroid.injected.signing.key.alias=my-alias \
+          -Pandroid.injected.signing.alias=my-alias \
           -Pandroid.injected.signing.key.password=123456
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-Chinese-Signed-APK
+        name: App-FSR3-Chinese-Signed
         path: android/app/build/outputs/apk/debug/*.apk
