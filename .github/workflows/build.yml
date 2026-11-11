@@ -22,10 +22,9 @@ jobs:
 
     - name: 暴力汉化 (强制替换源码文本)
       run: |
-        python3 -c '
-        import os, re
-        
-        # 这里是我从你截图里扒下来的所有英文和翻译字典
+        cat << 'EOF' > translate.py
+        import os
+
         translations = {
             "Settings": "设置", "UPDATES": "更新", "GAME DEFAULTS": "游戏默认", 
             "SYSTEM": "系统", "HELP": "帮助", "ABOUT": "关于",
@@ -41,7 +40,8 @@ jobs:
             "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开",
             "Mario Kart World": "马力欧卡丁车：世界", "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛",
             "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
-            "Fire Emblem Fortune\x27s Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认"
+            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", 
+            "On": "开启", "Off": "关闭", "Default": "默认"
         }
 
         target_dir = "android/app/src/main"
@@ -54,26 +54,32 @@ jobs:
                     
                     modified = False
                     for en, zh in translations.items():
-                        # 替换双引号里的
-                        if f\x27"{en}"\x27 in content:
-                            content = content.replace(f\x27"{en}"\x27, f\x27"{zh}"\x27)
+                        # 替换双引号
+                        if f'"{en}"' in content:
+                            content = content.replace(f'"{en}"', f'"{zh}"')
                             modified = True
-                        # 替换单引号里的
-                        if f"\\x27{en}\\x27" in content:
-                            content = content.replace(f"\\x27{en}\\x27", f"\\x27{zh}\\x27")
+                        # 替换单引号
+                        if f"'{en}'" in content:
+                            content = content.replace(f"'{en}'", f"'{zh}'")
+                            modified = True
+                        # 替换 XML 标签中间的文字
+                        if f'>{en}<' in content:
+                            content = content.replace(f'>{en}<', f'>{zh}<')
                             modified = True
                             
                     if modified:
                         with open(filepath, "w", encoding="utf-8") as f:
                             f.write(content)
-        '
+        print("汉化替换完成！")
+        EOF
+        
+        python3 translate.py
 
     - name: Build with Gradle
       run: |
         cd android/app
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         chmod +x gradlew
-        # 继续用 fake 模式极速打包
         ./gradlew assembleDebug --stacktrace -PnxPackEngine=fake
 
     - name: Upload APK
