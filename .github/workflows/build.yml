@@ -2,7 +2,6 @@ name: Build BananaNative Full APK
 
 on:
   push:
-    branches: [ "main" ]
   workflow_dispatch:
 
 jobs:
@@ -30,7 +29,6 @@ jobs:
         cd android/ondevice
         sed -i 's/\r$//' build.sh
         chmod +x build.sh
-        # 传入工作目录 ./work 和参数 all
         bash build.sh ./work all
 
     - name: Build with Gradle
