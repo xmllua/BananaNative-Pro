@@ -28,15 +28,31 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 1. 强行建好畸形目录，防止 curl 写入失败
-        mkdir -p "work/dl/https:/www.python.org/ftp/python/3.14.6"
+        # 1. 写一个假的 curl，拦截原作者的沙雕下载逻辑
+        mkdir -p /tmp/fakebin
+        cat << 'EOF' > /tmp/fakebin/curl
+        #!/bin/bash
+        REAL_CURL=/usr/bin/curl
+        URL="${@: -1}"
+        if [[ "$URL" == http* ]]; then
+            filename=$(basename "$URL")
+            mkdir -p ./work/dl
+            # 强行用正确的文件名下载到 ./work/dl/ 目录
+            $REAL_CURL -L -o "./work/dl/$filename" "$URL"
+            exit $?
+        fi
+        $REAL_CURL "$@"
+        EOF
+        chmod +x /tmp/fakebin/curl
         
-        # 2. 强行修改 build.sh 里的死链，替换成真正能下到的 Python 版本（Python 3.12）
-        sed -i 's|https://www.python.org/ftp/python/3.14.6/python-3.14.6-aarch64-linux-android.tar.gz|https://github.com/termux/termux-packages/releases/download/python-3.12.7-1/python_3.12.7_aarch64.deb|g' build.sh
+        # 2. 把这个假 curl 塞进系统路径的最前面
+        export PATH="/tmp/fakebin:$PATH"
         
+        # 3. 修复一下脚本的 Windows 换行符（这仅仅是转换格式，绝对没动它一行逻辑）
         sed -i 's/\r$//' build.sh
         chmod +x build.sh
         
+        # 4. 原汁原味执行它！
         bash build.sh ./work all
 
     - name: Build with Gradle
