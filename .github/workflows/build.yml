@@ -28,19 +28,42 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 1. 检查磁盘空间
-        df -h
+        # 1. 劫持 curl 命令！写一个同名脚本放到系统路径最前面
+        cat << 'EOF' > /usr/local/bin/curl
+        #!/bin/bash
+        args=("$@")
+        new_args=()
+        skip_next=false
+        for ((i=0; i<${#args[@]}; i++)); do
+            if [ "$skip_next" = true ]; then
+                skip_next=false
+                continue
+            fi
+            arg="${args[$i]}"
+            if [ "$arg" == "-o" ]; then
+                next_arg="${args[$((i+1))]}"
+                if [[ "$next_arg" == *"http://"* ]] || [[ "$next_arg" == *"https://"* ]]; then
+                    # 发现它想把网址当路径，我们直接把“畸形目录”建出来，并提取出正常文件名
+                    target_dir=$(dirname "$next_arg")
+                    filename=$(basename "$next_arg")
+                    mkdir -p "$target_dir"
+                    new_args+=("-o" "$target_dir/$filename")
+                    skip_next=true
+                    continue
+                fi
+            fi
+            new_args+=("$arg")
+        done
+        # 调用系统真正的 curl 来下载
+        exec /usr/bin/curl "${new_args[@]}"
+        EOF
+        chmod +x /usr/local/bin/curl
         
-        # 2. 终极防御：完全不动源码，纯靠我们手动把“畸形路径”建出来！
-        # 原作者把 URL 当成了目录，我们就把这个带冒号和斜杠的奇葩目录建好
-        mkdir -p "work/dl/https:/www.python.org/ftp/python/3.14.6"
-        mkdir -p "work/dl/https:/files.pythonhosted.org/packages/d/9c/28b11f64e2425774efb21c206a6e952cfce6e3e2ef3e4b63cdae32ccd8a5"
-        
-        # 3. 仅仅修复 Windows 换行符（这不算改代码逻辑，是为了能在 Linux 跑）
+        # 2. 仅仅修复 Windows 换行符（不改逻辑），并赋予权限
         sed -i 's/\r$//' build.sh
         chmod +x build.sh
         
-        # 4. 原汁原味执行脚本
+        # 3. 原汁原味执行源码，绝不修改它内部任何一行！
         bash build.sh ./work all
 
     - name: Build with Gradle
