@@ -1,0 +1,43 @@
+name: Extract English Strings
+on:
+  workflow_dispatch:
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Auto Scan English Text
+      run: |
+        python3 -c '
+        import os, re
+        strings = set()
+        
+        # 扫描所有的 Kotlin, Java 和 XML 文件
+        for root, dirs, files in os.walk("android/app/src/main"):
+            for file in files:
+                if file.endswith((".kt", ".java", ".xml")):
+                    with open(os.path.join(root, file), "r", encoding="utf-8") as f:
+                        content = f.read()
+                        
+                        # 匹配被双引号包裹的字符串
+                        matches = re.findall(r"\"([^\"]*)\"", content)
+                        for m in matches:
+                            # 过滤掉代码变量、网址、包名等不是给人看的文字
+                            if len(m) > 2 and not m.startswith(("android.", "com.", "dev.", "http", "R.", "layout.", "id.", "string.")):
+                                strings.add(m)
+                                
+        # 把所有找出来的英文写入一个文件
+        with open("strings_to_translate.txt", "w", encoding="utf-8") as out:
+            for s in sorted(strings):
+                out.write(s + "\n")
+        print(f"总共找到 {len(strings)} 条英文文本！")
+        '
+
+    - name: Upload English Text File
+      uses: actions/upload-artifact@v4
+      with:
+        name: English-Text-List
+        path: strings_to_translate.txt
