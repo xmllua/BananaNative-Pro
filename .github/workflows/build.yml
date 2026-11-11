@@ -28,21 +28,19 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 1. 强行建好它需要的目录
-        mkdir -p work/dl
+        # 1. 检查磁盘空间
+        df -h
         
-        # 2. 我们自己动手把 Python 下载到正确的位置！
-        echo "Downloading Python..."
-        wget -q -O work/dl/python-3.14.6-aarch64-linux-android.tar.gz https://www.python.org/ftp/python/3.14.6/python-3.14.6-aarch64-linux-android.tar.gz || true
+        # 2. 终极防御：完全不动源码，纯靠我们手动把“畸形路径”建出来！
+        # 原作者把 URL 当成了目录，我们就把这个带冒号和斜杠的奇葩目录建好
+        mkdir -p "work/dl/https:/www.python.org/ftp/python/3.14.6"
+        mkdir -p "work/dl/https:/files.pythonhosted.org/packages/d/9c/28b11f64e2425774efb21c206a6e952cfce6e3e2ef3e4b63cdae32ccd8a5"
         
-        # 3. 修复换行符
+        # 3. 仅仅修复 Windows 换行符（这不算改代码逻辑，是为了能在 Linux 跑）
         sed -i 's/\r$//' build.sh
-        
-        # 4. 魔法补丁：强行删掉 build.sh 里下载 Python 的那行代码，防止它又搞破坏
-        # 查找包含 curl 和 python-3.14 的行，把它注释掉
-        sed -i '/curl.*python-3.14/s/^/# /g' build.sh
-        
         chmod +x build.sh
+        
+        # 4. 原汁原味执行脚本
         bash build.sh ./work all
 
     - name: Build with Gradle
