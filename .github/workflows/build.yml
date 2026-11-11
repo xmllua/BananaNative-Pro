@@ -28,18 +28,20 @@ jobs:
       run: |
         cd android/ondevice
         
-        # 检查磁盘空间
+        # 1. 检查磁盘空间
         df -h
         
-        # 修复换行符
+        # 2. 修复换行符
         sed -i 's/\r$//' build.sh
         
-        # 核心精准魔法：只把 "-o ./work/dl/xxx" 替换成 "-O"，绝不删掉后面的真实 URL
-        sed -i 's|-o \.\/work\/dl\/[^ ]*|-O|g' build.sh
+        # 3. 终极魔法：给所有 curl 命令加上 --create-dirs 参数
+        # 这样即使它把 URL 当成路径，curl 也会自动创建带冒号的奇葩文件夹
+        sed -i 's/curl /curl --create-dirs /g' build.sh
+        
+        # 4. 双重保险：手动创建核心的 work 目录
+        mkdir -p "work/dl/https:"
         
         chmod +x build.sh
-        
-        # 运行脚本（如果再次报错，请查看输出的日志，看是哪一行还在报错）
         bash build.sh ./work all
 
     - name: Build with Gradle
