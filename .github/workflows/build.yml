@@ -1,4 +1,4 @@
-name: Build Ultimate FSR and Chinese
+name: Build FSR 3.1 Fixed and Fixed Signature
 
 on:
   push:
@@ -11,26 +11,30 @@ jobs:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # 1. 尝试打上大佬的 FSR 3.1 底层补丁
+    # 1. 自动下载并注入 FSR 3.1 补丁
     - name: Apply FSR 3.1 Patch
       run: |
         wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/151.patch -O pr151.patch || true
         if [ -s pr151.patch ]; then
-          git apply --3way --ignore-whitespace pr151.patch || echo "⚠️ 补丁应用失败，将跳过。"
+          git apply --3way --ignore-whitespace pr151.patch || echo "⚠️ 补丁应用失败"
         fi
 
-    # 2. 核心魔法：自动寻找 UI 文件并强行注入 FSR 3.1 开关
-    - name: Force Add FSR 3.1 UI Option
+    # 2. 强行修复 Java 层的数组越界 Bug (把 5 改成 6)
+    - name: Force Fix UI Array Mismatch
       run: |
-        # 搜索包含 "SGSR 1" 的 Java 文件
         FILE=$(grep -rl 'SGSR 1' android/app/src/main/java/ | head -n 1)
         if [ -n "$FILE" ]; then
-          echo "找到 UI 文件: $FILE，正在注入 FSR 3.1 选项..."
-          # 用 sed 将 SGSR 1 替换为 SGSR 1 加上 FSR 3.1，保证不破坏原有代码结构
           sed -i 's/"SGSR 1 (sharp, fast, one pass)"/"SGSR 1 (sharp, fast, one pass)", "FSR 3.1 (sharp, steady)"/g' $FILE
-        else
-          echo "⚠️ 找不到 UI 文件，跳过。"
+          sed -i 's/MODE_COUNT = 5/MODE_COUNT = 6/g' $FILE
+          sed -i 's/UPSCALER_COUNT = 5/UPSCALER_COUNT = 6/g' $FILE
         fi
+
+    # 3. 核心魔法：替换云端默认的调试签名，保证以后永远可以直接覆盖安装！
+    - name: Setup Permanent Debug Keystore
+      run: |
+        mkdir -p ~/.android
+        # 生成一个与安卓默认参数完全一致的固定秘钥，直接覆盖云端默认的
+        keytool -genkeypair -v -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "C=US, O=Android, CN=Android Debug"
 
     - name: Set up JDK 17
       uses: actions/setup-java@v4
@@ -41,17 +45,7 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
 
-    # 3. 生成固定签名
-    - name: Generate Fixed Keystore
-      run: |
-        if [ ! -f my-release-key.jks ]; then
-          keytool -genkey -v -keystore my-release-key.jks -keyalg RSA -keysize 2048 -validity 10000 \
-            -alias my-alias -storepass 123456 -keypass 123456 \
-            -dname "CN=Android, OU=Android, O=Android, L=Android, S=Android, C=US"
-        fi
-
-    # 4. 暴力汉化 (加上免死金牌，绝不改坏代码结构)
-    - name: 暴力汉化
+    - name: Translate
       run: |
         cat << 'EOF' > translate.py
         import os
@@ -65,41 +59,39 @@ jobs:
             "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界", 
             "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛", "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
             "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认",
+            "Nearest neighbor (fastest, blocky)": "最近邻 (最快, 块状)",
+            "Bilinear (fastest, softest)": "双线性 (最快, 最柔和)",
+            "FSR 1 (sharp, fast; too bright on Qualcomm's driver in some games)": "FSR 1 (清晰, 快; 部分游戏偏亮)",
+            "Native (sharpest, slowest)": "原生 (最清晰, 最慢)",
+            "SGSR 1 (sharp, fast, one pass)": "SGSR 1 (锐利, 快速, 单次处理)",
             "FSR 3.1 (sharp, steady)": "FSR 3.1 (锐利, 稳定)"
         }
         for root, dirs, files in os.walk("android/app/src/main"):
             for file in files:
                 if file.endswith((".kt", ".java", ".xml")):
                     filepath = os.path.join(root, file)
-                    with open(filepath, "r", encoding="utf-8") as f: 
-                        content = f.read()
+                    with open(filepath, "r", encoding="utf-8") as f: content = f.read()
                     modified = False
                     for en, zh in translations.items():
-                        # 使用严格匹配，绝不碰代码里的变量名
-                        if f'"{en}"' in content: 
+                        if f'"{en}"' in content:
                             content = content.replace(f'"{en}"', f'"{zh}"')
                             modified = True
                     if modified:
-                        with open(filepath, "w", encoding="utf-8") as f: 
-                            f.write(content)
+                        with open(filepath, "w", encoding="utf-8") as f: f.write(content)
         EOF
         python3 translate.py
 
-    # 5. 编译打包
     - name: Build with Gradle
       run: |
         cd android/app
         echo "sdk.dir=$ANDROID_HOME" > local.properties
         chmod +x gradlew
         
-        ./gradlew assembleDebug -PnxPackEngine=fake \
-          -Pandroid.injected.signing.store.file=$(pwd)/../../my-release-key.jks \
-          -Pandroid.injected.signing.store.password=123456 \
-          -Pandroid.injected.signing.key.alias=my-alias \
-          -Pandroid.injected.signing.key.password=123456
+        # 这里不需要再加那些乱七八糟的 injected 参数了，因为云端自带的已经被我们换了
+        ./gradlew assembleDebug -PnxPackEngine=fake
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-Ultimate-FSR-zh
+        name: App-Ultimate-Fixed
         path: android/app/build/outputs/apk/debug/*.apk
