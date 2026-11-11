@@ -15,15 +15,13 @@ jobs:
     - name: Apply FSR 3.1 Patch
       run: |
         echo "正在尝试下载 PR #151 补丁..."
-        # 下载补丁文件
         wget -q https://git.eden-emu.dev/moceure/BananaNative/pulls/151.patch -O pr151.patch || true
         
         if [ -s pr151.patch ]; then
           echo "补丁下载成功，尝试应用..."
-          # 使用 --3way 智能合并，如果失败则输出警告并继续打包（不影响旧功能）
-          git apply --3way --ignore-whitespace pr151.patch || echo "⚠️ 补丁应用失败，可能存在代码冲突，将跳过 FSR 补丁。"
+          git apply --3way --ignore-whitespace pr151.patch || echo "⚠️ 补丁应用失败，将跳过。"
         else
-          echo "⚠️ 补丁下载失败，将跳过 FSR 补丁。"
+          echo "⚠️ 补丁下载失败。"
         fi
 
     - name: Set up JDK 17
@@ -35,7 +33,7 @@ jobs:
     - name: Setup Android SDK
       uses: android-actions/setup-android@v4
 
-    # 2. 生成固定签名 (以后覆盖安装不冲突)
+    # 2. 生成固定签名
     - name: 生成固定签名证书
       run: |
         if [ ! -f my-release-key.jks ]; then
@@ -44,7 +42,7 @@ jobs:
             -dname "CN=Android, OU=Android, O=Android, L=Android, S=Android, C=US"
         fi
 
-    # 3. 暴力汉化
+    # 3. 暴力汉化 (核心修复：加上了"FSR" not in en判断，放过FSR的开关)
     - name: 暴力汉化
       run: |
         cat << 'EOF' > translate.py
@@ -58,26 +56,37 @@ jobs:
             "Storage": "存储空间", "Readiness check": "设备检查", "Graphics self-test": "图形自检", "Share log": "分享日志",
             "Games in this app:": "支持的游戏：", "Donkey Kong Bananza": "大金刚：蕉力全开", "Mario Kart World": "马力欧卡丁车：世界", 
             "The Legend of Zelda: Ocarina of Time": "塞尔达传说：时之笛", "Pokemon Pokopia": "宝可梦 Pokopia", "Splatoon Raiders": "斯普拉遁：Raiders",
-            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认",
-            # 补丁新增的选项也顺便给它汉化了
-            "FSR 3.1 (sharp, steady)": "FSR 3.1 (锐利、稳定)"
+            "Fire Emblem Fortune's Weave": "火焰纹章：万缕千丝", "On": "开启", "Off": "关闭", "Default": "默认"
         }
         for root, dirs, files in os.walk("android/app/src/main"):
             for file in files:
                 if file.endswith((".kt", ".java", ".xml")):
                     filepath = os.path.join(root, file)
-                    with open(filepath, "r", encoding="utf-8") as f: content = f.read()
+                    with open(filepath, "r", encoding="utf-8") as f: 
+                        content = f.read()
                     modified = False
                     for en, zh in translations.items():
-                        if f'"{en}"' in content: content = content.replace(f'"{en}"', f'"{zh}"'); modified = True
-                        if f"'{en}'" in content: content = content.replace(f"'{en}'", f"'{zh}'"); modified = True
-                        if f'>{en}<' in content: content = content.replace(f'>{en}<', f'>{zh}<'); modified = True
+                        # 关键修复：如果英文里包含"FSR"，直接跳过，绝不误伤新加的开关
+                        if "FSR" in en:
+                            continue
+                        
+                        if f'"{en}"' in content: 
+                            content = content.replace(f'"{en}"', f'"{zh}"')
+                            modified = True
+                        if f"'{en}'" in content: 
+                            content = content.replace(f"'{en}'", f"'{zh}'")
+                            modified = True
+                        if f'>{en}<' in content: 
+                            content = content.replace(f'>{en}<', f'>{zh}<')
+                            modified = True
+                            
                     if modified:
-                        with open(filepath, "w", encoding="utf-8") as f: f.write(content)
+                        with open(filepath, "w", encoding="utf-8") as f: 
+                            f.write(content)
         EOF
         python3 translate.py
 
-    # 4. 编译打包 (使用固定签名)
+    # 4. 编译打包
     - name: Build with Gradle
       run: |
         cd android/app
@@ -93,5 +102,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: App-Chinese-Signed-FSR
+        name: App-Chinese-Signed-FSR-Fixed
         path: android/app/build/outputs/apk/debug/*.apk
