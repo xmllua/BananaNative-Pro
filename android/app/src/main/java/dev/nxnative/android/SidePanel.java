@@ -441,7 +441,7 @@ final class SidePanel extends FrameLayout {
             box.addView(DrsSlider.view(act, Prefs.drs(act, game()), drsHead::setText, i -> { Prefs.drs(act, game(), i); Native.drsSet(Prefs.DRS[i][0], Prefs.DRS[i][1]); }));
         }
         if (Prefs.limited(game())) {
-            box.addView(head("Shader"));
+            head("Shader");
             android.widget.CheckBox fp16 = new android.widget.CheckBox(act);
             fp16.setText("Fast FP16 shader math (Turnip)");
             fp16.setChecked(Prefs.fp16(act, game()));
