@@ -1,0 +1,141 @@
+name: Build Turnip Driver
+
+# Builds Mesa's Turnip (freedreno Vulkan) for Android arm64 and packs it the way the launcher's
+# GPU driver folder expects: <name>/libvulkan_freedreno.so plus a meta.json. The APK is not touched:
+# download the artifact, unzip it into the phone's
+#   Android/data/dev.nxnative.androie/files/gpu_drivers/<name>/
+# and pick it in Settings > GPU driver.
+#
+# Mesa source: the branch/tag below (change MESA_REF to try another build). The default is the
+# 25.2 branch, which is the line Turnip V39 came from.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_ref:
+        description: 'Mesa branch or tag to build (e.g. mesa-25.2.0, main)'
+        required: true
+        default: 'mesa-25.2.0'
+      driver_name:
+        description: 'Driver folder name shown in the launcher'
+        required: true
+        default: 'Turnip-CI'
+      build_type:
+        description: 'release or debug'
+        required: true
+        default: 'release'
+
+jobs:
+  build-turnip:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/* 2>/dev/null || true
+          df -h /
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential git python3-pip pkg-config \
+            libclang-dev libclc-18-dev libllvm18 llvm-18-dev \
+            bison flex ninja-build meson git-lfs
+          pip3 install --break-system-packages mako
+
+      - name: Set up Android NDK
+        run: |
+          NDK_VERSION=r27c
+          echo "NDK_VERSION=$NDK_VERSION" >> $GITHUB_ENV
+          curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+          unzip -q /tmp/ndk.zip -d /opt
+          echo "ANDROID_NDK=/opt/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+
+      - name: Fetch Mesa
+        env:
+          MESA_REF: ${{ github.event.inputs.mesa_ref }}
+        run: |
+          git clone --depth 1 --branch "$MESA_REF" \
+            https://gitlab.freedesktop.org/mesa/mesa.git mesa || {
+              echo "::error::branch $MESA_REF not found; trying as a tag"
+              git clone --depth 1 --branch "$MESA_REF" https://gitlab.freedesktop.org/mesa/mesa.git mesa
+            }
+          cd mesa && git log --oneline -1
+
+      - name: Configure (cross file for Android arm64)
+        env:
+          BT: ${{ github.event.inputs.build_type }}
+        run: |
+          cat > /tmp/android-aarch64.txt <<EOF
+          [binaries]
+          c = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang'
+          cpp = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++'
+          ar = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          pkg-config = 'pkg-config'
+          [host_machine]
+          system = 'android'
+          cpu_family = 'aarch64'
+          cpu = 'aarch64'
+          endian = 'little'
+          [properties]
+          android_api_level = 34
+          EOF
+          cd mesa
+          meson setup build-android \
+            --cross-file /tmp/android-aarch64.txt \
+            --buildtype="$BT" \
+            -Dplatforms=android \
+            -Dplatform-sdk-version=34 \
+            -Dandroid-stub=true \
+            -Dgallium-drivers=freedreno \
+            -Dvulkan-drivers=freedreno \
+            -Dfreedreno-kmds=kgsl \
+            -Dbuild-tests=false \
+            -Dgallium-rusticl=false \
+            -Dglx=disabled \
+            -Degl=disabled \
+            -Dgles2=disabled \
+            -Dopengl=false \
+            -Dllvm=disabled \
+            -Dvideo-codecs= \
+            -Dzstd=disabled \
+            -Dzlib=disabled \
+            --wrap-mode=nodownload
+
+      - name: Build
+        run: |
+          cd mesa
+          ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so -j$(nproc)
+          ls -la build-android/src/freedreno/vulkan/libvulkan_freedreno.so
+
+      - name: Package driver folder
+        env:
+          NAME: ${{ github.event.inputs.driver_name }}
+          MESA_REF: ${{ github.event.inputs.mesa_ref }}
+        run: |
+          mkdir -p out/$NAME
+          cp mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so out/$NAME/
+          $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded out/$NAME/libvulkan_freedreno.so || true
+          MESA_VER=$(cd mesa && git describe --tags --always 2>/dev/null || echo unknown)
+          MESA_COMMIT=$(cd mesa && git rev-parse --short HEAD)
+          cat > out/$NAME/meta.json <<EOF
+          {
+            "name": "$NAME",
+            "description": "Turnip built by CI from $MESA_REF ($MESA_COMMIT)",
+            "author": "Mesa / freedreno",
+            "vendor": "Mesa",
+            "driverVersion": "$MESA_VER",
+            "minApi": 34,
+            "libraryName": "libvulkan_freedreno.so"
+          }
+          EOF
+          ls -la out/$NAME/
+          cat out/$NAME/meta.json
+
+      - name: Upload driver
+        uses: actions/upload-artifact@v4
+        with:
+          name: turnip-${{ github.event.inputs.driver_name }}-${{ github.event.inputs.mesa_ref }}
+          path: out/
+          retention-days: 30
