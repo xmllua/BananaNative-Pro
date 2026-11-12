@@ -1059,6 +1059,14 @@ static void dlss_eval(const p_dlss *o) {
         if (dy + oh > (int)d->h) oh = (int)d->h - dy;
         if (iw <= 0 || ih <= 0 || ow <= 0 || oh <= 0) return;
     }
+    if (mode == 4) {   // FSR 3.1 (vka_fsr3.c): its inputs as a copy record's rectangles; FSR 1 / bilinear when it cannot run
+        p_dlss_t2t f = {0};
+        f.c.src = ct; f.c.dst = ot; f.c.sr = (NVNcopyRegion){sx, sy, 0, iw, ih, 1}; f.c.dr = (NVNcopyRegion){dx, dy, 0, ow, oh, 1};
+        f.depth = o->tex[DLSS_DEPTH]; f.motion = o->tex[DLSS_MOTION]; memcpy(f.jitter, o->jitter, sizeof f.jitter); memcpy(f.mv, o->mv, sizeof f.mv); f.reset = o->reset;
+        vka_img *z = f.depth ? vka_tex_get(f.depth, g_cb) : NULL, *m = f.motion ? vka_tex_get(f.motion, g_cb) : NULL;
+        if (!o->base[DLSS_DEPTH][0] && !o->base[DLSS_DEPTH][1] && !o->base[DLSS_MOTION][0] && !o->base[DLSS_MOTION][1] && vka_dlss_fsr3(g_cb, s, d, z, m, &f)) { vka_img_written(d); g_stat_ops++; return; }
+        mode = 2;
+    }
     if (mode >= 2 && vka_dlss_run(g_cb, o, mode, s, sl, sx, sy, iw, ih, d, dl, dx, dy, ow, oh)) { vka_img_written(d); g_stat_ops++; return; }
     if ((s->f.kind && s->f.kind < 3) || s->f.kind != d->f.kind || s->f.bw > 1 || s->samples > 1) {
         VRED_ONCE("DLSS stand-in: formats %#x → %#x cannot be blitted (integer, compressed or multisampled): the output stays unwritten", ct->d.format, ot->d.format); return; }

@@ -43,13 +43,13 @@ final class DlssTune {
     static int clamp(int v, int n, int dflt) { return v >= 0 && v < n ? v : dflt; }
 
     /** The Upscaler row: the stand-in's modes in the order shown, and each one's DM_VK_DLSS (3 GSR2 3-pass, 2 FSR 1 with the jitter taken out, 1 bilinear) */
-    static final String[] MODE_NAMES = {"GSR 2 (smooth images)", "FSR 1 (sharp, fast)", "Bilinear (fastest, softest)"};
-    static final int[] MODE_DLSS = {3, 2, 1};
-    static final int MODE_DEFAULT = 0, MODE_GSR2 = 0, MODE_FSR1 = 1;
+    static final String[] MODE_NAMES = {"GSR 2 (smooth images)", "FSR 1 (sharp, fast)", "Bilinear (fastest, softest)", "FSR 3.1 (sharp, steady)"};
+    static final int[] MODE_DLSS = {3, 2, 1, 4};
+    static final int MODE_DEFAULT = 0, MODE_GSR2 = 0, MODE_FSR1 = 1, MODE_FSR3 = 3;
     /** Which sliders the mode shows: GSR 2 both, FSR 1 the sharpness alone (its RCAS), bilinear none */
     static boolean showsClarity(int mode) { return clamp(mode, MODE_NAMES.length, MODE_DEFAULT) == MODE_GSR2; }
-    static boolean showsSharp(int mode) { int m = clamp(mode, MODE_NAMES.length, MODE_DEFAULT); return m == MODE_GSR2 || m == MODE_FSR1; }
-    static String sharpTitle(int mode) { return clamp(mode, MODE_NAMES.length, MODE_DEFAULT) == MODE_FSR1 ? "FSR sharpness" : "Temporal sharpness"; }
+    static boolean showsSharp(int mode) { int m = clamp(mode, MODE_NAMES.length, MODE_DEFAULT); return m == MODE_GSR2 || m == MODE_FSR1 || m == MODE_FSR3; }
+    static String sharpTitle(int mode) { int m = clamp(mode, MODE_NAMES.length, MODE_DEFAULT); return m == MODE_FSR1 ? "FSR sharpness" : m == MODE_FSR3 ? "Sharpness" : "Temporal sharpness"; }
 
     /** The present's scaling for a stored ndsr_choice2 (the table above): FSR 1, bilinear or nearest */
     static final int PRESENT_FSR = 0, PRESENT_BILINEAR = 1, PRESENT_NEAREST = 2;
@@ -79,6 +79,8 @@ final class DlssTune {
     }
     /** The host's lines for a clarity step and a sharpness index */
     static List<String> lines(int clarity, int sharpIndex) {
-        return Arrays.asList("DM_VK_GSR2_CLARITY=" + clamp(clarity, CLARITY_NAMES.length, CLARITY_DEFAULT), "DM_VK_DLSS_SHARP=" + SHARPS[clamp(sharpIndex, SHARPS.length, SHARP_DEFAULT)]);
+        int sh = SHARPS[clamp(sharpIndex, SHARPS.length, SHARP_DEFAULT)];
+        return Arrays.asList("DM_VK_GSR2_CLARITY=" + clamp(clarity, CLARITY_NAMES.length, CLARITY_DEFAULT), "DM_VK_DLSS_SHARP=" + sh,
+                             "DM_VK_FSR3_SHARP=" + String.format(java.util.Locale.ROOT, "%.2f", sh / 30f));
     }
 }
