@@ -296,4 +296,20 @@ final class Readiness {
         for (Map.Entry<String, String> e : f.entrySet()) s.append(e.getKey()).append('=').append(e.getValue()).append('\n');
         return s.toString();
     }
+    /** The GPU's name from the GL renderer string (e.g. "Adreno (TM) 740"), or the string itself when it does not look like one */
+    static String gpuName(String renderer) {
+        if (renderer == null || renderer.isEmpty()) return "";
+        int i = renderer.indexOf("Adreno");
+        if (i >= 0) {
+            int e = renderer.indexOf(')', i);
+            return e > 0 ? renderer.substring(i, e + 1) : renderer.substring(i);
+        }
+        int j = renderer.indexOf("Mali");
+        if (j >= 0) {
+            int e = renderer.indexOf(')', j);
+            return e > 0 ? renderer.substring(j, e + 1) : renderer.substring(j);
+        }
+        return renderer;
+    }
+
 }

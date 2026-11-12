@@ -109,7 +109,9 @@ def dlssOf = { String game -> tsvRows(game, 'dlss_standin').isEmpty() ? '' : '1'
 def presentOnlyOf = { String game -> tsvRows(game, 'fps_limit_present').isEmpty() ? '' : '1' }
 // The pixel shaders the game's Speedhack setting drops (game.tsv skip_layers: shader keys, comma separated), or empty. The launcher then offers the toggle (Prefs.skipLayersGame)
 def skipLayersOf = { String game -> tsvRows(game, 'skip_layers').with { rs -> rs.isEmpty() || rs[0].size() < 2 ? '' : rs[0][1].trim().replaceAll(/[^0-9a-fA-F,]/, '') } }
-def nxProfiles = nxGames.collect { g -> [g, nameOf(g).replaceAll(/[\t\n\\"]/, ' '), shaderTotalOf(g), shaderInputsOf(g), buildsOf(g), reqsOf(g), statusOf(g), deltaOf(g), stampOf(g), resolutionOf(g), romfsChecksOf(g), gpuTsOf(g), windowOf(g), decoupleOf(g), drsOf(g), fpsLimitOf(g), dlssOf(g), presentOnlyOf(g), skipLayersOf(g)].join('\\t') }.join('\\n')
+// The resolution presets of the game's windows (game.tsv res_preset + scene_output): "id|label|window|mode|height|outW|outH|measured", ';' between them (ResPresets)
+def presetsOf = { String game -> tsvRows(game, 'res_preset').with { rs -> rs.isEmpty() || rs[0].size() < 2 ? '' : rs[0][1].trim().replaceAll(/[^0-9a-zA-Z|;,._-]/, '') } }
+def nxProfiles = nxGames.collect { g -> [g, nameOf(g).replaceAll(/[\t\n\\"]/, ' '), shaderTotalOf(g), shaderInputsOf(g), buildsOf(g), reqsOf(g), statusOf(g), deltaOf(g), stampOf(g), resolutionOf(g), romfsChecksOf(g), gpuTsOf(g), windowOf(g), decoupleOf(g), drsOf(g), fpsLimitOf(g), dlssOf(g), presentOnlyOf(g), skipLayersOf(g), presetsOf(g)].join('\\t') }.join('\\n')
 def lockOf = { String key -> def f = new File(repo, 'dm/gfx/tools/dmsh_chain.lock'); f.isFile() ? (f.readLines().find { it.startsWith(key + '\t') }?.split('\t')?.getAt(1) ?: 'unknown') : 'unknown' }
 
 android {

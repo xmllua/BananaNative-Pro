@@ -312,4 +312,9 @@ final class Prefs {
     }
 
     private static String buildTag() { return Signer.buildTag(BuildConfig.NX_PLAY, buildId()); }
+
+    static void rememberGlFacts(Context c, String glFacts) {
+        String k = Recommend.keep(glFacts);
+        if (!k.isEmpty() && of(c).getString("vk_facts@" + Recommend.SYSTEM, "").isEmpty()) of(c).edit().putString("vk_facts@" + Recommend.SYSTEM, k).commit();
+    }
 }
