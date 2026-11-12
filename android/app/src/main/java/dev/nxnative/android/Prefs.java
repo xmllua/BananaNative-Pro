@@ -209,8 +209,10 @@ final class Prefs {
     /** Game settings › Classic render passes (DM_VK_CLASSIC_RP): VkRenderPasses with imageless framebuffers instead of dynamic rendering. Off by default (a GPU loss on Adreno 830 with Turnip, open) */
     static boolean classicPasses(Context c, String titleId) { return of(c).getBoolean(gameKey("vk_classic_rp", titleId), false); }
     static void classicPasses(Context c, String titleId, boolean on) { of(c).edit().putBoolean(gameKey("vk_classic_rp", titleId), on).commit(); }
-    /** Game settings › Fast FP16 shader math (DM_VK_FP16, TU_DEBUG=fp16): native 16-bit half-precision ALU on Turnip. Off by default */
-    static boolean fp16(Context c, String titleId) { return of(c).getBoolean(gameKey("vk_fp16", titleId), false); }
+    /** Fast FP16 shader math (DM_VK_FP16, TU_DEBUG=fp16): native 16-bit half-precision ALU on Turnip. Main screen default off; each game's own follows it */
+    static boolean fp16(Context c) { return of(c).getBoolean("vk_fp16", false); }
+    static void fp16Default(Context c, boolean on) { of(c).edit().putBoolean("vk_fp16", on).commit(); }
+    static boolean fp16(Context c, String titleId) { return of(c).getBoolean(gameKey("vk_fp16", titleId), fp16(c)); }
     static void fp16(Context c, String titleId, boolean on) { of(c).edit().putBoolean(gameKey("vk_fp16", titleId), on).commit(); }
 
     /**
