@@ -205,7 +205,7 @@ public final class MainActivity extends Activity {
         LinearLayout sys = settingsCard(content);
         gpuRow = new Ui.Setting(this, "🎮", "GPU driver", v -> GpuDriver.dialog(this, PICK_DRIVER)).chevron(this);   // custom GPU drivers (GpuDriver.java)
         sys.addView(gpuRow.view);
-        sys.addView(new Ui.Setting(this, "⚡", "Fast FP16 shader math", null).toggle(this, Prefs.fp16(this), (b, on) -> Prefs.fp16Default(this, on)).value("Turnip: faster shader math & lower heat (restart)").view);
+        sys.addView(new Ui.Setting(this, "⚡", "快速 FP16 着色器运算", null).toggle(this, Prefs.fp16(this), (b, on) -> Prefs.fp16Default(this, on)).value("Turnip：更快的着色器运算与更低发热（需重启生效）").view);
         sys.addView(new Ui.Setting(this, "📁", "Folders", v -> Folders.dialog(this)).value("Game, pack and save folders").chevron(this).view);
         sys.addView(new Ui.Setting(this, "🧹", "Storage", v -> StorageUi.dialog(this)).value("Remove leftovers and old files; never saves").chevron(this).view);   // (StorageUi.java)
         // some phones stop or slow a background job once the screen is off (GitHub discussion 58): Home keeps the screen on while preparing (Ondevice), the service its wake lock
