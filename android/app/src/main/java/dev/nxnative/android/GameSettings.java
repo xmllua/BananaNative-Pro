@@ -58,7 +58,7 @@ final class GameSettings {
             if (GameUpscaler.mode(a, id) == GameUpscaler.MODE_FSR)   // only with FSR 1 chosen
                 Ui.add(box, new Ui.Setting(a, "✨", "FSR sharpness", v -> sharpness(a, g, again)).value(dflt(GameUpscaler.ownSharp(a, id), GameUpscaler.sharpName(a, id))).chevron(a).view, 0);
         }
-        Ui.add(box, new Ui.Setting(a, "⚡", "Fast FP16 shader math", null).toggle(a, Prefs.fp16(a, id), (b, on) -> Prefs.fp16(a, id, on)).value("Turnip: faster shader math & lower heat").view, 0);
+        Ui.add(box, new Ui.Setting(a, "⚡", "快速 FP16 着色器运算", null).toggle(a, Prefs.fp16(a, id), (b, on) -> Prefs.fp16(a, id, on)).value("Turnip：更快着色器运算与更低发热").view, 0);
         if (Prefs.drsGame(id))
             Ui.add(box, new Ui.Setting(a, "📐", "Dynamic resolution", v -> drs(a, g, again)).value(dflt(Prefs.ownDrs(a, id), Prefs.DRS_NAMES[Prefs.drs(a, id)])).chevron(a).view, 0);
         Ui.add(box, new Ui.Setting(a, "🎮", "GPU driver", v -> driver(a, g, again)).value(driverLabel(a, id)).chevron(a).view, 0);
