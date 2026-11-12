@@ -340,6 +340,7 @@ void vka_rp_end(void) {
     bcrt_flush();        // block-compressed targets drawn through shadows: their blocks back (bcrt_attach)
     R.on = 0; vka_tex_feedback(NULL, NULL, 0);
     if (vka_nan_on()) vka_nan_pass(g_cb, R.cim, R.clv, R.cl0, R.nci);
+    if (R.df != VK_FORMAT_UNDEFINED) vka_fsr3_probe_note(R.df, R.dext.width, R.dext.height, R.dnl);   // FSR3 depth probe (DM_VK_FSR3_DEPTH=1): is the scene depth reachable?
 }
 static void rt_peek(const char *what, int i, const tex_t *t, const vka_img *im, uint32_t lv, uint32_t l0, uint32_t nl);   // DM_VK_TEX_PEEK
 static void rt_range(const vka_img *im, const view_t *v, int has_v, uint32_t *lv, uint32_t *l0, uint32_t *nl);
@@ -2688,9 +2689,13 @@ void vka_dispatch(vka_dstate *d, const p_dispatch *dp) {
           if (!fmt_ok) VRED("NDSR blit: format %d -> %d cannot be blitted with a linear filter on this device: FSR or the network (DM_VK_NDSR)", a->f.vk, b->f.vk);
         }
         if (fits && mode == 4 && (ndsr_sgsr(tin, tout, a, b, fb, sq) || ndsr_fsr(tin, tout, a, b, fb, sq, 0))) { g_dispatches++; return; }   // SGSR 1, else FSR 1
-        // FSR 3.1 (mode 5): no depth/motion estimate for the common games yet, so FSR 1 runs until then; the true FSR 3.1 (vka_fsr3.c) needs depth + motion vectors
-        // and is wired for DLSS games (DM_VK_DLSS=4). TODO: estimate depth/motion from the colour and feed vka_dlss_fsr3 here
-        if (fits && mode == 5 && ndsr_fsr(tin, tout, a, b, fb, sq, 0)) { g_dispatches++; return; }
+        // FSR 3.1 (mode 5): the probe (DM_VK_FSR3_DEPTH=1) reports whether vka can see a real scene depth; the temporal upscaler still needs motion vectors too,
+        // which a regular game does not provide -- until a motion estimate exists, FSR 1 runs (the DM_VK_NDSR=5 choice is an alpha placeholder)
+        if (fits && mode == 5) {
+            if (vka_fsr3_probe_depth_ok() && VKA_ENV("DM_VK_FSR3_DEPTH", 0))
+                VLOG("NDSR FSR 3.1 (mode 5): depth capturable %ux%u; motion estimate pending, FSR 1 for now", vka_fsr3_probe_depth_w(), vka_fsr3_probe_depth_h());
+            if (ndsr_fsr(tin, tout, a, b, fb, sq, 0)) { g_dispatches++; return; }
+        }
         // FSR 1, or for sqrt(colour) every mode (a blit cannot square), as compute passes; then the blit; else the network
         if (fits && (mode == 2 || sq) && ndsr_fsr(tin, tout, a, b, fb, sq, mode == 2 ? 0 : mode == 3 ? 2 : 1)) { g_dispatches++; return; }
         if (fits && !sq && fmt_ok > 0 && a->f.vk == fa && b->f.vk == fb &&   // (a blit copies the images' own formats: only where they are the textures')

@@ -365,6 +365,9 @@ void vka_img_barrier(VkCommandBuffer cb, VkImage img, VkImageAspectFlags aspect,
 // the input rectangle of s (level sl), outside any render pass. Returns the mode done (3, or 2 when GSR2 lacks depth / motion), 0 = not done (the caller blits)
 int vka_dlss_run(VkCommandBuffer cb, const p_dlss *o, int mode, vka_img *s, uint32_t sl, int sx, int sy, int iw, int ih, vka_img *d, uint32_t dl, int dx, int dy, int ow, int oh);
 int vka_dlss_fsr3(VkCommandBuffer cb, vka_img *src, vka_img *dst, vka_img *depth, vka_img *motion, const p_dlss_t2t *o);   // vka_fsr3.c: FSR 3.1 for DM_VK_DLSS=4; 0 = not done (the caller falls back to FSR 1)
+int vka_fsr3_probe_note(VkFormat df, uint32_t w, uint32_t h, uint32_t nl);   // vka_fsr3probe.c (DM_VK_FSR3_DEPTH=1)
+int vka_fsr3_probe_depth_ok(void); uint32_t vka_fsr3_probe_depth_w(void); uint32_t vka_fsr3_probe_depth_h(void);   // vka_fsr3probe.c: depth-feasibility probe (DM_VK_FSR3_DEPTH=1), read by vka_draw.c's DM_VK_NDSR=5
+   // vka_fsr3.c: FSR 3.1 for DM_VK_DLSS=4; 0 = not done (the caller falls back to FSR 1)
 // The control line "screenshot" (vka_ctl.c): the present copies the window texture's crop into its command buffer, then hands the texels to the PNG writer once that submission is done
 void vka_ctl_shot_record(VkCommandBuffer cb, vka_img *im, VkFormat fmt, int cx, int cy, int cw, int ch);
 void vka_ctl_shot_done(VkFence fence);
