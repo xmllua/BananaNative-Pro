@@ -1608,6 +1608,12 @@ static struct { int open; isnap base; VkPipeline ipipe; uint32_t wv, wp; VkDevic
     // the fast join (inst_fast): the moved block's uniform slots and their addresses at the run's first draw, the state generation, the draw's own records
     int fast, iv, ip; vka_range uv, up; uint32_t gen; uint64_t ibuf; int32_t prim, itype; int has_rt, has_sc; p_set_rt rt; p_scissor sc; } RUN;
 static uint64_t g_inst_runs, g_inst_joined, g_inst_falls, g_inst_fast;
+// A scene of thousands of draws with no repeat to merge pays the candidate check on every draw for nothing
+// (recording 24-29 us a draw instead of 12.5). After this many candidate draws in one submission with no run
+// started or joined, the check is skipped for the rest of that submission; the next frame starts it again, so
+// a scene that does have runs (Ocarina of Time draws them in runs of 32) still merges them.
+static int g_inst_tried, g_inst_givenup;
+#define INST_GIVEUP_AFTER 256
 static int inst_snap(isnap *s, VkPipeline p, VkBuffer ib, VkDeviceSize io, VkIndexType it, const p_draw_idx *di, const vka_dstate *d) {
     if (g_w.n > 64) return s->valid = 0;
     s->p = p; s->ib = ib; s->io = io; s->it = it; s->cnt = (uint32_t)di->count; s->bv = di->base_vertex; s->nw = g_w.n;
@@ -1679,7 +1685,7 @@ static vka_shader *inst_variant_make(vka_shader *s, uint32_t binding) {
 }
 static void inst_close(void) { RUN.open = 0; }
 void vka_draw_run_break(void) { inst_close(); }
-static void inst_reset(void) { RUN.open = 0; g_ia.valid = 0; }
+static void inst_reset(void) { RUN.open = 0; g_ia.valid = 0; g_inst_tried = 0; g_inst_givenup = 0; }
 // A draw that joins the open run without its walk: nothing but the run's two uniform slots was bound since the run's last draw, nothing was recorded, the same
 // draw record, targets and scissor; the slots moved by one amount inside the windows. Every other draw takes the full path (which may still join)
 static int inst_fast(vka_dstate *d, const p_set_rt *rt, int has_rt, const p_scissor *sc, int has_sc, const p_draw_idx *di) {
@@ -2001,9 +2007,10 @@ static void draw_body(vka_dstate *d, const p_set_rt *rt, int has_rt, const p_sci
     // DM_VK_INSTANCE: a direct indexed draw of one instance with only vertex and pixel shaders, their base modules and no retyped inputs may join the open run (its
     // instanced pipeline stays bound) or start one (decided at the sets, below)
     VkBuffer i_ib = VK_NULL_HANDLE; VkDeviceSize i_io = 0; VkIndexType i_it = VK_INDEX_TYPE_UINT16;
-    int icand = g_inst_on && !mesh && di && !di->ind && !expand && di->instances <= 1 && d->b.base_instance == 0 && sh[1] && !sh[2] && !sh[3] && !sh[4] && !d->rast_discard
+    int icand = g_inst_on && !g_inst_givenup && !mesh && di && !di->ind && !expand && di->instances <= 1 && d->b.base_instance == 0 && sh[1] && !sh[2] && !sh[3] && !sh[4] && !d->rast_discard
                 && !(k.vin_u | k.vin_s) && k.fs_variant == DMSH_VK_MOD_BASE && lay.push && vka_enc_on() && inst_ib(di, &i_ib, &i_io, &i_it);
     int ijoin = icand && RUN.open && p == RUN.base.p && DY.valid && DY.pipe == RUN.ipipe && vka_enc_total() == RUN.mark && inst_same_draw(&RUN.base, i_ib, i_io, i_it, di, d);
+    if (ijoin && g_inst_tried) g_inst_tried = 0;
     if (!ijoin) {
         if (RUN.open) inst_close();
         if (!DY.valid || !g_dyn_filter || DY.pipe != p) { vk.vkCmdBindPipeline(g_cb, VK_PIPELINE_BIND_POINT_GRAPHICS, p); DY.pipe = p; VB.vin_stale = 1; }
@@ -2232,7 +2239,10 @@ static void draw_body(vka_dstate *d, const p_set_rt *rt, int has_rt, const p_sci
         } else vk.vkCmdDrawIndexed(g_cb, (uint32_t)di->count, inst, 0, di->base_vertex, binst);
     }
     g_draws++;
-    if (icand && !istart && !RUN.open) { if (inst_snap(&g_ia, p, i_ib, i_io, i_it, di, d)) g_ia.mark = vka_enc_total(); } else g_ia.valid = 0;   // a run may start from this draw
+    if (icand && !istart && !RUN.open) {
+        if (inst_snap(&g_ia, p, i_ib, i_io, i_it, di, d)) g_ia.mark = vka_enc_total();
+        if (++g_inst_tried >= INST_GIVEUP_AFTER) { g_inst_givenup = 1; g_ia.valid = 0; }   // nothing merges here: stop paying the check
+    } else g_ia.valid = 0;   // a run may start from this draw
     PT(8);
     if (vka_nan_on() >= 2 && vka_nan_split(R.cim, R.nci)) vka_rp_end();   // DM_VK_NANSCAN=2: a scan inside the game's pass
 }
