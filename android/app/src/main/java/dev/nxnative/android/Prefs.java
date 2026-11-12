@@ -313,8 +313,20 @@ final class Prefs {
 
     private static String buildTag() { return Signer.buildTag(BuildConfig.NX_PLAY, buildId()); }
 
+    /** What the readiness check found on a driver (Recommend.keep of its answer), kept per driver choice */
+    static void rememberFacts(Context c, String driverChoice, String vulkan) {
+        String k = Recommend.keep(vulkan);
+        if (!k.isEmpty() && !k.equals(of(c).getString("vk_facts@" + driverChoice, ""))) of(c).edit().putString("vk_facts@" + driverChoice, k).commit();
+    }
     static void rememberGlFacts(Context c, String glFacts) {
         String k = Recommend.keep(glFacts);
         if (!k.isEmpty() && of(c).getString("vk_facts@" + Recommend.SYSTEM, "").isEmpty()) of(c).edit().putString("vk_facts@" + Recommend.SYSTEM, k).commit();
+    }
+
+    /** Game settings > Resolution > 3D scene: the chosen scene's name for this game ("" = none) */
+    static String sceneRes(Context c, String titleId) { return of(c).getString(gameKey("scene_res", titleId), ""); }
+    static void sceneRes(Context c, String titleId, String name) {
+        if (name == null || name.isEmpty()) of(c).edit().remove(gameKey("scene_res", titleId)).commit();
+        else of(c).edit().putString(gameKey("scene_res", titleId), name).commit();
     }
 }
