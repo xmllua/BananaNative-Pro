@@ -2659,8 +2659,8 @@ void vka_dispatch(vka_dstate *d, const p_dispatch *dp) {
       // overrides what the input is taken to hold, for every network replaced
       int net = known || ndsr_iface(sh[5]);
       if (net && mode != last) {   // a change of choice: logged once, the blit's line again
-        static const char *const name[] = {"the game's network", "a bilinear stretch", "FSR 1", "the nearest texel", "SGSR 1"};
-        VLOG("NDSR upscaler: DM_VK_NDSR=%d (%s) from network %016llx's next dispatch on%s", mode, mode >= 0 && mode <= 4 ? name[mode] : "the game's network (unknown value)",
+        static const char *const name[] = {"the game's network", "a bilinear stretch", "FSR 1", "the nearest texel", "SGSR 1", "FSR 3.1 (DM_VK_NDSR=5; no depth/motion estimate yet: FSR 1 for now)"};
+        VLOG("NDSR upscaler: DM_VK_NDSR=%d (%s) from network %016llx's next dispatch on%s", mode, mode >= 0 && mode <= 5 ? name[mode] : "the game's network (unknown value)",
              (unsigned long long)sh[5]->key, last < 0 ? "" : " (a live change)");
         last = mode; noted = 0;
       }
@@ -2688,6 +2688,9 @@ void vka_dispatch(vka_dstate *d, const p_dispatch *dp) {
           if (!fmt_ok) VRED("NDSR blit: format %d -> %d cannot be blitted with a linear filter on this device: FSR or the network (DM_VK_NDSR)", a->f.vk, b->f.vk);
         }
         if (fits && mode == 4 && (ndsr_sgsr(tin, tout, a, b, fb, sq) || ndsr_fsr(tin, tout, a, b, fb, sq, 0))) { g_dispatches++; return; }   // SGSR 1, else FSR 1
+        // FSR 3.1 (mode 5): no depth/motion estimate for the common games yet, so FSR 1 runs until then; the true FSR 3.1 (vka_fsr3.c) needs depth + motion vectors
+        // and is wired for DLSS games (DM_VK_DLSS=4). TODO: estimate depth/motion from the colour and feed vka_dlss_fsr3 here
+        if (fits && mode == 5 && ndsr_fsr(tin, tout, a, b, fb, sq, 0)) { g_dispatches++; return; }
         // FSR 1, or for sqrt(colour) every mode (a blit cannot square), as compute passes; then the blit; else the network
         if (fits && (mode == 2 || sq) && ndsr_fsr(tin, tout, a, b, fb, sq, mode == 2 ? 0 : mode == 3 ? 2 : 1)) { g_dispatches++; return; }
         if (fits && !sq && fmt_ok > 0 && a->f.vk == fa && b->f.vk == fb &&   // (a blit copies the images' own formats: only where they are the textures')

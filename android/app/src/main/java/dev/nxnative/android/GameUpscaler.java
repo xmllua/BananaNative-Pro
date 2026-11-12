@@ -23,8 +23,8 @@ final class GameUpscaler {
 
     /** The choices in the order shown, and each one's DM_VK_NDSR value (3 nearest-neighbour blit, 1 bilinear blit, 2 FSR 1, 0 the game's network, 4 Qualcomm's SGSR 1).
      *  New choices go at the end: the stored choice is an index into this list */
-    static final String[] MODES = {"Nearest neighbor (fastest, blocky)", "Bilinear (fastest, softest)", "FSR 1 (sharp, fast; too bright on Qualcomm's driver in some games)", "Native (sharpest, slowest)", "SGSR 1 (sharp, fast, one pass)"};
-    static final int[] NDSR = {3, 1, 2, 0, 4};
+    static final String[] MODES = {"Nearest neighbor (fastest, blocky)", "Bilinear (fastest, softest)", "FSR 1 (sharp, fast; too bright on Qualcomm's driver in some games)", "Native (sharpest, slowest)", "SGSR 1 (sharp, fast, one pass)", "FSR 3.1 (temporal, steady; alpha: falls back to FSR 1 without depth/motion)"};
+    static final int[] NDSR = {3, 1, 2, 0, 4, 5};
     static final int MODE_DEFAULT = 4;   // SGSR 1 (FSR 1 is too bright on Qualcomm's driver in Ocarina of Time: open, docs/reference/shaders.md)
     static final int MODE_FSR = 2;
     /** RCAS sharpness in stops (0 the strongest, each stop halves it); below 0: no RCAS */
