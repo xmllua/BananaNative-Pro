@@ -441,9 +441,9 @@ final class SidePanel extends FrameLayout {
             box.addView(DrsSlider.view(act, Prefs.drs(act, game()), drsHead::setText, i -> { Prefs.drs(act, game(), i); Native.drsSet(Prefs.DRS[i][0], Prefs.DRS[i][1]); }));
         }
         if (Prefs.limited(game())) {
-            head("Shader");
+            head("着色器");
             android.widget.CheckBox fp16 = new android.widget.CheckBox(act);
-            fp16.setText("Fast FP16 shader math (Turnip)");
+            fp16.setText("快速 FP16 着色器运算（Turnip）");
             fp16.setChecked(Prefs.fp16(act, game()));
             fp16.setOnCheckedChangeListener((b, on) -> Prefs.fp16(act, game(), on));
             box.addView(fp16);
