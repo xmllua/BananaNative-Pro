@@ -1835,6 +1835,31 @@ static void mdi_cpu(int indexed, uint64_t ind, uint64_t cnt, uint32_t n, uint32_
         if (indexed) vk.vkCmdDrawIndexedIndirect(g_cb, b, o, 1, 20); else vk.vkCmdDrawIndirect(g_cb, b, o, 1, 16);
     }
 }
+// Lower vegetation detail (Game settings > Full vegetation, DM_VK_VEGETATION=0): the profile's reviewed mesh draws are
+// omitted. A draw is kept when it has transform feedback on or any binding that writes memory (the shaders' flags say so),
+// so only a pass whose work the picture does not need is dropped.
+static int vegetation_cut(const vka_dstate *d, vka_shader *const *sh) {
+    if (!DM_GAME_NMESH_VEGETATION_CUT || VKA_ENV("DM_VK_VEGETATION", 1) || d->tf_on) return 0;
+    static const uint64_t keys[] = DM_GAME_MESH_VEGETATION_CUT;
+    unsigned i = 0;
+    while (i < DM_GAME_NMESH_VEGETATION_CUT && keys[i] != sh[7]->key) i++;
+    if (i == DM_GAME_NMESH_VEGETATION_CUT) return 0;
+    for (int stage = 0; stage < VKA_NSTAGE; stage++) {
+        const vka_shader *shader = sh[stage];
+        if (!shader) continue;
+        for (unsigned j = 0; j < shader->e->bind_count; j++) {
+            const dmsh_vk_bind *binding = &shader->b[j];
+            if ((binding->flags & (DMSH_VK_BF_RW | DMSH_VK_BF_ATOMIC | DMSH_VK_BF_NOSLOT)) ||
+                binding->kind == DMSH_VK_KIND_GMEM_LOG || binding->kind == DMSH_VK_KIND_UNKNOWN)
+                return 0;
+        }
+    }
+    static uint64_t omitted;
+    if (++omitted == 1 || omitted % 4096 == 0)
+        VLOG("lower vegetation detail: %llu mesh draws omitted", (unsigned long long)omitted);
+    return 1;
+}
+
 static void draw_body(vka_dstate *d, const p_set_rt *rt, int has_rt, const p_scissor *sc, int has_sc, const p_draw *dw, const p_draw_idx *di) {
     if (!g_cb || !draws_on() || !statics()) { g_skipped++; return; }
     if (RUN.open && RUN.fast && di && !dw && g_inst_on && inst_fast(d, rt, has_rt, sc, has_sc, di)) return;   // DM_VK_INSTANCE: the run's next object, no walk
@@ -1862,6 +1887,7 @@ static void draw_body(vka_dstate *d, const p_set_rt *rt, int has_rt, const p_sci
         if (!resolve(mp, 6, &sh[6], &bad) || !resolve(mp, 7, &sh[7], &bad) || !resolve(d->bst[1], 1, &sh[1], &bad)) SKIP("mesh draw skipped: no shader library");
         if (bad) { g_skipped++; g_skip_dev[VKS_SHADER]++; return; }   // a refused or missing shader (logged when it was made)
         if (!sh[7]) SKIP("mesh draw with no mesh shader bound: skipped");
+        if (vegetation_cut(d, sh)) return;
         // Diagnostics: DM_VK_MESH_LOG=1 logs each (task, mesh, pixel) shader triple once with its first draw's workgroups; DM_VK_MESH_SKIP=<mesh key>,... skips the mesh
         // draws of those mesh shaders (a wrong mesh draw found by taking draws away in a replay)
         if (VKA_ENV("DM_VK_MESH_LOG", 0)) { static uint64_t seen[256][2]; static int ns; uint64_t a = sh[7]->key, b = sh[1] ? sh[1]->key : 0; int k = 0;

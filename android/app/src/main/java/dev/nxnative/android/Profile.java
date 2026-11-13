@@ -23,6 +23,7 @@ final class Profile {
     String gpuTs = "submission";   // game.tsv gpu_timestamps (build.gradle gpuTsOf): "segment" or "submission", what the host does without DM_NVN_GPU_TS (Game settings › GPU timing)
     String window = "";   // game.tsv android_window (build.gradle windowOf): the default Game resolution when the player chose none (Prefs.gameWindow), "" for the main screen's
     boolean presentOnly;   // game.tsv fps_limit_present 1 (build.gradle presentOnlyOf): the frame limit only paces the presents, the game's own logic is not known to follow it (Prefs.presentOnly)
+    boolean vegetationDetail;   // game.tsv has mesh_vegetation_cut rows (build.gradle): Game settings > Full vegetation (Prefs.fullVegetation)
     String skipLayers = "";   // game.tsv skip_layers (build.gradle skipLayersOf): pixel shader keys whose draws the Speedhack setting drops (Prefs.skipLayersGame), "" = not offered
     String presets = "";   // game.tsv res_preset rows (build.gradle presetsOf): "id|label|window|mode|height|outW|outH|measured", ';' between them; Game settings > Resolution (ResPresets)
     String scenes = "";   // game.tsv scene_scale rows (build.gradle sceneOf): "name|label|scale|mode", ';' between them; Game settings > Resolution > 3D scene (SceneRes)
@@ -162,6 +163,7 @@ final class Profile {
             p.presets = c.length > 19 ? c[19] : "";
             p.scenes = c.length > 20 ? c[20] : "";
             p.recommend = c.length > 21 ? c[21] : "";
+            p.vegetationDetail = c.length > 22 && c[22].equals("1");
             out.add(p);
         }
         return Collections.unmodifiableList(out);

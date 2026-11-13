@@ -115,7 +115,7 @@ def presetsOf = { String game -> tsvRows(game, 'res_preset').with { rs -> rs.isE
 def sceneOf = { String game -> tsvRows(game, 'scene_scale').with { rs -> rs.isEmpty() || rs[0].size() < 2 ? '' : rs[0][1].trim().replaceAll(/[^0-9a-zA-Z|;,._-]/, '') } }
 // The recommended settings per phone (game.tsv recommend rows): "<match>|<setting>=<value>", ';' between them (Recommend)
 def recommendOf = { String game -> tsvRows(game, 'recommend').with { rs -> rs.isEmpty() || rs[0].size() < 2 ? '' : rs[0][1].trim().replaceAll(/[^0-9a-zA-Z|=;,._-]/, '') } }
-def nxProfiles = nxGames.collect { g -> [g, nameOf(g).replaceAll(/[\t\n\\"]/, ' '), shaderTotalOf(g), shaderInputsOf(g), buildsOf(g), reqsOf(g), statusOf(g), deltaOf(g), stampOf(g), resolutionOf(g), romfsChecksOf(g), gpuTsOf(g), windowOf(g), decoupleOf(g), drsOf(g), fpsLimitOf(g), dlssOf(g), presentOnlyOf(g), skipLayersOf(g), presetsOf(g), sceneOf(g), recommendOf(g)].join('\\t') }.join('\\n')
+def nxProfiles = nxGames.collect { g -> [g, nameOf(g).replaceAll(/[\t\n\\"]/, ' '), shaderTotalOf(g), shaderInputsOf(g), buildsOf(g), reqsOf(g), statusOf(g), deltaOf(g), stampOf(g), resolutionOf(g), romfsChecksOf(g), gpuTsOf(g), windowOf(g), decoupleOf(g), drsOf(g), fpsLimitOf(g), dlssOf(g), presentOnlyOf(g), skipLayersOf(g), presetsOf(g), sceneOf(g), recommendOf(g), tsvRows(g, 'mesh_vegetation_cut').isEmpty() ? '' : '1'].join('\\t') }.join('\\n')
 def lockOf = { String key -> def f = new File(repo, 'dm/gfx/tools/dmsh_chain.lock'); f.isFile() ? (f.readLines().find { it.startsWith(key + '\t') }?.split('\t')?.getAt(1) ?: 'unknown') : 'unknown' }
 
 android {
