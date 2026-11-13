@@ -3,18 +3,22 @@ name: Build Turnip Driver
 on:
   workflow_dispatch:
     inputs:
+      mesa_repo:
+        description: 'Mesa source repository'
+        required: false
+        default: 'https://github.com/whitebelyash/mesa-unified.git'
       mesa_ref:
-        description: 'Mesa branch/tag/commit; main is the 27.x devel line of Turnip V39'
+        description: 'branch/tag/commit (turnip/gen8 has the real Adreno 8xx tables)'
         required: true
-        default: main
+        default: 'turnip/gen8'
       driver_name:
         description: 'Driver folder name in the launcher'
         required: true
-        default: Turnip-CI
+        default: 'Turnip-Gen8'
       build_type:
         description: 'release or debug'
         required: true
-        default: release
+        default: 'release'
 
 jobs:
   build-turnip:
@@ -24,6 +28,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/* 2>/dev/null || true
           df -h /
+
       - name: Install build tools
         run: |
           sudo apt-get update -qq
@@ -33,6 +38,7 @@ jobs:
           python3 -m pip install --break-system-packages -q "meson>=1.4" mako
           hash -r
           meson --version
+
       - name: Set up Android NDK
         run: |
           NDK_VERSION=r27c
@@ -40,6 +46,7 @@ jobs:
           curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
           unzip -q /tmp/ndk.zip -d /opt
           echo "ANDROID_NDK=/opt/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+
       - name: Point zlib at the NDK sysroot
         run: |
           API=34
@@ -50,32 +57,43 @@ jobs:
           cat /tmp/android-pc/zlib.pc
           echo "PKG_CONFIG_LIBDIR=/tmp/android-pc" >> $GITHUB_ENV
           echo "PKG_CONFIG_PATH=" >> $GITHUB_ENV
+
       - name: Fetch Mesa
         env:
           REF: ${{ github.event.inputs.mesa_ref }}
+          SRC_IN: ${{ github.event.inputs.mesa_repo }}
         run: |
-          WANT="${REF:-main}"
-          echo "mesa ref: $WANT"
+          WANT="${REF:-turnip/gen8}"
+          SRC="${SRC_IN:-https://github.com/whitebelyash/mesa-unified.git}"
+          echo "mesa repo: $SRC"
+          echo "mesa ref:  $WANT"
           git init mesa
           cd mesa
-          git remote add origin https://gitlab.freedesktop.org/mesa/mesa.git
-          git fetch --depth 1 origin "$WANT" || git fetch --depth 1 origin main
+          git remote add origin "$SRC"
+          git fetch --depth 1 origin "$WANT" || git fetch --depth 1 origin turnip/gen8
           git checkout -q FETCH_HEAD
           git log --oneline -1
           echo "MESA_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-      - name: Check device table
+
+      - name: Check the device table for the phone GPU
         run: |
           cd mesa
           DEV=src/freedreno/common/freedreno_devices.py
           test -f $DEV || { echo "no $DEV at $(git rev-parse --short HEAD)"; exit 1; }
-          echo "Adreno 8xx entries:"
-          grep -oE 'a8[0-9]{2}[a-z_]*' $DEV | sort -u | tr '\n' ' '
-          echo
-          if ! grep -q a840 $DEV; then
-            echo "This Mesa has no Adreno 840: the driver would find no Vulkan physical device. Use mesa_ref=main."
+          echo "--- Adreno 840 entries ---"
+          grep -n 'Adreno (TM) 840' $DEV || true
+          if ! grep -q 'Adreno (TM) 840' $DEV; then
+            echo "no Adreno 840 in this Mesa: the driver would report no Vulkan physical device."
             exit 1
           fi
-          echo "a840 present"
+          echo "--- layout (CCU / slices must match the phone) ---"
+          grep -n -A9 'Adreno (TM) 840' $DEV | grep -E 'chip_id|num_ccu|num_slices|tile_align_w|cs_shared_mem_size' || true
+          if grep -q '44050A31' $DEV; then
+            echo "OK: a840 = 0xffff44050A31 (the gen8 branch layout)"
+          elif grep -q '44050A21' $DEV; then
+            echo "::warning::a840 = 0xffff44050A21 (the main-branch layout). Check CCU/slice counts above."
+          fi
+
       - name: Configure
         env:
           BT: ${{ github.event.inputs.build_type }}
@@ -97,7 +115,6 @@ jobs:
             echo ""
             echo "[properties]"
             echo "android_api_level = 34"
-            echo "needs_exe_wrapper = false"
             echo ""
             echo "[built-in options]"
             echo "cpp_link_args = ['-static-libstdc++']"
@@ -105,13 +122,29 @@ jobs:
           cat /tmp/cross.txt
           cd mesa
           BTYPE="${BT:-release}"
-          meson setup build-android --cross-file /tmp/cross.txt --buildtype="$BTYPE" -Dplatforms=android -Dplatform-sdk-version=34 -Dandroid-stub=true -Dgallium-drivers= -Dvulkan-drivers=freedreno -Dfreedreno-kmds=kgsl -Dbuild-tests=false -Dgallium-rusticl=false -Dglx=disabled -Dopengl=false -Degl=disabled -Dgles1=disabled -Dgles2=disabled -Dzstd=disabled -Dllvm=disabled -Dtools= -Dvideo-codecs= --wrap-mode=nodownload
+          meson setup build-android \
+            --cross-file /tmp/cross.txt \
+            --buildtype="$BTYPE" \
+            -Dplatforms=android \
+            -Dplatform-sdk-version=34 \
+            -Dandroid-stub=true \
+            -Dgallium-drivers= \
+            -Dvulkan-drivers=freedreno \
+            -Dvulkan-beta=true \
+            -Dfreedreno-kmds=kgsl \
+            -Db_lto=true \
+            -Degl=disabled \
+            -Dzstd=disabled \
+            -Dlibarchive=disabled \
+            --wrap-mode=nodownload
+
       - name: Build
         run: |
           cd mesa
           ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so -j$(nproc)
           ls -la build-android/src/freedreno/vulkan/libvulkan_freedreno.so
-      - name: Check runtime deps
+
+      - name: Check runtime dependencies
         run: |
           cd mesa
           SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
@@ -119,33 +152,54 @@ jobs:
           $READELF -d $SO | sed -n '1,40p'
           for bad in libdrm libGL libEGL libX11 libwayland-client libc++_shared; do
             if $READELF -d $SO | grep -q "$bad"; then
-              echo "driver links $bad, absent on the phone"
+              echo "driver links $bad, which is absent on the phone"
               exit 1
             fi
           done
-          echo "only Android system libraries"
-      - name: Check GPU entry
+          echo "ok: only Android system libraries"
+
+      - name: Check the gralloc path and the GPU entry
         run: |
           cd mesa
           SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
-          if $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strings $SO | grep -q 'Adreno (TM) 840'; then
-            echo "the a840 entry is in the built .so"
+          STR=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strings
+          if $STR $SO | grep -q 'Adreno (TM) 840'; then
+            echo "ok: the a840 device entry is in the driver"
           else
-            echo "note: Adreno 840 string not found; the table may not be linked in"
+            echo "::warning::'Adreno (TM) 840' not found in the .so"
           fi
+          # V39 links libvndksupport and carries AIMapper_loadIMapper; a stub-only gralloc path
+          # cannot import gralloc buffers, which is the difference that matters here.
+          if $STR $SO | grep -q 'AIMapper_loadIMapper'; then
+            echo "ok: the AIMapper (gralloc) path is compiled in"
+          else
+            echo "::warning::no AIMapper_loadIMapper: the gralloc path is stubbed out"
+          fi
+
       - name: Package driver folder
         env:
           NAME: ${{ github.event.inputs.driver_name }}
           REF: ${{ github.event.inputs.mesa_ref }}
         run: |
-          DRV="${NAME:-Turnip-CI}"
-          MREF="${REF:-main}"
+          DRV="${NAME:-Turnip-Gen8}"
+          MREF="${REF:-turnip/gen8}"
           mkdir -p out/$DRV
           cp mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so out/$DRV/
           $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded out/$DRV/libvulkan_freedreno.so || true
-          printf '{\n  "name": "%s",\n  "description": "Turnip built from %s (%s)",\n  "author": "Mesa / freedreno",\n  "vendor": "Mesa",\n  "driverVersion": "%s-%s",\n  "minApi": 34,\n  "libraryName": "libvulkan_freedreno.so"\n}\n' "$DRV" "$MREF" "$MESA_COMMIT" "$MREF" "$MESA_COMMIT" > out/$DRV/meta.json
+          cat > out/$DRV/meta.json <<EOF
+{
+  "name": "$DRV",
+  "description": "Turnip built from $MREF ($MESA_COMMIT)",
+  "author": "Mesa / freedreno / whitebelyash",
+  "vendor": "Mesa",
+  "driverVersion": "$MREF-$MESA_COMMIT",
+  "minApi": 34,
+  "libraryName": "libvulkan_freedreno.so"
+}
+EOF
           ls -la out/$DRV/
           cat out/$DRV/meta.json
+
       - name: Upload driver
         uses: actions/upload-artifact@v4
         with:
