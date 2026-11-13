@@ -81,7 +81,23 @@ jobs:
           BT: ${{ github.event.inputs.build_type }}
         run: |
           NDKTOOL=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
-          printf '[binaries]\nc = %s\ntarget = c\n\n[host_machine]\nsystem = "android"\ncpu_family = "aarch64"\ncpu = "aarch64"\nendian = "little"\n' "'$NDKTOOL/aarch64-linux-android34-clang'" > /tmp/cross.txt
+          {
+            echo "[binaries]"
+            echo "c = '$NDKTOOL/aarch64-linux-android34-clang'"
+            echo "cpp = '$NDKTOOL/aarch64-linux-android34-clang++'"
+            echo "ar = '$NDKTOOL/llvm-ar'"
+            echo "strip = '$NDKTOOL/llvm-strip'"
+            echo "pkg-config = 'pkg-config'"
+            echo ""
+            echo "[host_machine]"
+            echo "system = 'android'"
+            echo "cpu_family = 'aarch64'"
+            echo "cpu = 'aarch64'"
+            echo "endian = 'little'"
+            echo ""
+            echo "[properties]"
+            echo "android_api_level = 34"
+          } > /tmp/cross.txt
           cat /tmp/cross.txt
           cd mesa
           BTYPE="${BT:-release}"
