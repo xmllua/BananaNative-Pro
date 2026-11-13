@@ -41,7 +41,9 @@ jobs:
             build-essential git python3-pip pkg-config \
             libclang-dev libclc-18-dev libllvm18 llvm-18-dev \
             bison flex ninja-build meson git-lfs
-          pip3 install --break-system-packages mako
+          pip3 install --break-system-packages --upgrade "meson>=1.4" mako
+          hash -r
+          meson --version
 
       - name: Set up Android NDK
         run: |
