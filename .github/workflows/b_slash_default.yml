@@ -1,0 +1,13 @@
+name: Probe Workflow
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_ref:
+        description: 'branch here'
+        required: true
+        default: 'turnip/gen8'
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
