@@ -1,31 +1,40 @@
 name: Build Turnip Driver
 
 # Builds Mesa's Turnip (freedreno Vulkan) for Android arm64 and packs it the way the launcher's
-# GPU driver folder expects: <name>/libvulkan_freedreno.so plus a meta.json. The APK is not touched:
-# download the artifact, unzip it into the phone's
-#   Android/data/dev.nxnative.androie/files/gpu_drivers/<name>/
-# and pick it in Settings > GPU driver.
+# GPU driver folder expects: <name>/libvulkan_freedreno.so plus a meta.json.
+# Download the artifact, install the zip with Settings > GPU driver.
 #
-# Mesa source: the branch/tag below (change MESA_REF to try another build). The default is the
-# 25.2 branch, which is the line Turnip V39 came from.
+# ---------------------------------------------------------------------------------------------
+# WHICH MESA
+# The driver this repo's users run is Turnip_Gen8_V39, and its own readiness line names it:
+#   driver turnip Mesa driver (Mesa 27.0.0-devel (git-2648b2059f))
+# So the default MESA_REF below is `main`, which is the 27.x devel line that commit belongs to.
 #
-# Build-scope decisions (each one came from a failing run):
+# Do NOT use a release branch (mesa-25.2.0, 25.3, 26.x) for an Adreno 840: none of them has the
+# a840 in src/freedreno/common/freedreno_devices.py (checked: 25.2 has no a8xx at all, 25.3 and
+# 26.0 none, 26.1 only a830, main has a830 + a840). A driver built from those branches loads fine
+# but enumerates no physical device ("[RED] vk: no Vulkan physical device"), which is exactly what
+# the first turnip-CI run did.
+# ---------------------------------------------------------------------------------------------
+#
+# Build-scope decisions (each one came from a failing run of this workflow):
 #  1. Vulkan only: no Gallium freedreno. With Gallium freedreno enabled, Mesa forces Turnip to link
-#     libdrm (meson.build:294) and src/util/u_sync_provider.c needs <xf86drm.h>, which does not exist
-#     for the Android target -> runs 1..7 all died at "u_sync_provider.c: fatal error: 'xf86drm.h'".
-#  2. No glvnd / GL / EGL: nothing in the driver needs them, they only drag host GL deps in.
-#  3. No SPIRV-Tools: it is a host-only dependency (meson.build:1834, only required when with_clc).
-#     If the package is installed in the image, meson finds it, defines HAVE_SPIRV_TOOLS, and
-#     src/compiler/spirv/vtn_debug.c then includes <spirv-tools/libspirv.h>, which the Android
-#     cross-compile cannot resolve (run 8). Leaving the package out keeps that macro undefined.
+#     libdrm (meson.build) and src/util/u_sync_provider.c needs <xf86drm.h>, which does not exist
+#     for the Android target.
+#  2. No glvnd / GL / EGL: nothing in the Vulkan driver needs them.
+#  3. No SPIRV-Tools: host-only dependency, only required for mesa-clc. If it is installed meson
+#     defines HAVE_SPIRV_TOOLS and src/compiler/spirv/vtn_debug.c includes <spirv-tools/libspirv.h>,
+#     which the Android cross-compile cannot resolve.
+#  4. zlib from the NDK sysroot: dependency('zlib') otherwise resolves to the host libz and the
+#     link fails with "ld.lld: error: libz.so is incompatible with aarch64linux".
 
 on:
   workflow_dispatch:
     inputs:
       mesa_ref:
-        description: 'Mesa branch or tag to build (e.g. mesa-25.2.0, main)'
+        description: 'Mesa branch/tag/commit (main = 27.x devel, the line Turnip V39 came from)'
         required: true
-        default: 'mesa-25.2.0'
+        default: 'main'
       driver_name:
         description: 'Driver folder name shown in the launcher'
         required: true
@@ -50,9 +59,8 @@ jobs:
             build-essential git python3-pip pkg-config \
             bison flex ninja-build git-lfs \
             glslang-tools zlib1g-dev \
-            python3-setuptools python3-mako python3-numpy python3-yaml
-          # The host-only SPIRV-Tools files must be gone, otherwise dep_spirv_tools is found and
-          # HAVE_SPIRV_TOOLS makes vtn_debug.c include a header the Android target cannot see.
+            python3-setuptools python3-mako python3-numpy python3-yaml python3-ply
+          # keep the host-only SPIRV-Tools out: see header note 3
           sudo apt-get remove -y -qq spirv-tools libspirv-tools-dev 2>/dev/null || true
           sudo rm -rf /usr/lib/*/cmake/SPIRV-Tools /usr/lib/cmake/SPIRV-Tools \
                      /usr/lib/*/pkgconfig/SPIRV-Tools.pc /usr/lib/pkgconfig/SPIRV-Tools.pc || true
@@ -68,26 +76,22 @@ jobs:
           echo "ANDROID_NDK=/opt/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
       - name: Point zlib at the NDK sysroot
         run: |
-          # dependency('zlib') resolved to the *host* libz (/usr/lib/x86_64-linux-gnu/libz.so) and the
-          # final link failed with "ld.lld: error: libz.so is incompatible with aarch64linux" (run 9).
-          # The NDK ships its own libz for every API level, so hand meson a pkg-config file that
-          # points there and make sure the host pkg-config dirs are not searched.
+          # see header note 4
           API=34
           SYS=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
           test -f $SYS/usr/include/zlib.h && echo "OK: NDK zlib.h found"
           mkdir -p /tmp/android-pc
           cat > /tmp/android-pc/zlib.pc <<EOF
-          prefix=$SYS/usr
-          libdir=\${prefix}/lib/aarch64-linux-android/$API
-          includedir=\${prefix}/include
-          
-          Name: zlib
-          Description: zlib compression library (Android NDK)
-          Version: 1.3
-          Libs: -L\${libdir} -lz
-          Cflags: -I\${includedir}
-          EOF
-          # the heredoc above inherits the YAML block indentation, strip it so pkg-config can parse
+prefix=$SYS/usr
+libdir=\${prefix}/lib/aarch64-linux-android/$API
+includedir=\${prefix}/include
+
+Name: zlib
+Description: zlib compression library (Android NDK)
+Version: 1.3
+Libs: -L\${libdir} -lz
+Cflags: -I\${includedir}
+EOF
           sed -i 's/^ *//' /tmp/android-pc/zlib.pc
           cat /tmp/android-pc/zlib.pc
           echo "PKG_CONFIG_LIBDIR=/tmp/android-pc" >> $GITHUB_ENV
@@ -96,31 +100,49 @@ jobs:
         env:
           MESA_REF: ${{ github.event.inputs.mesa_ref }}
         run: |
-          git clone --depth 1 --branch "$MESA_REF" \
-            https://gitlab.freedesktop.org/mesa/mesa.git mesa || {
-              echo "::error::branch $MESA_REF not found; trying as a tag"
-              git clone --depth 1 --branch "$MESA_REF" https://gitlab.freedesktop.org/mesa/mesa.git mesa
-            }
-          cd mesa && git log --oneline -1
+          git init mesa && cd mesa
+          git remote add origin https://gitlab.freedesktop.org/mesa/mesa.git
+          # a branch, a tag or a commit; fall back to a plain clone when the shallow fetch is refused
+          git fetch --depth 1 origin "$MESA_REF" || git fetch --depth 1 origin main
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+          echo "MESA_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+      - name: Check the device table has your GPU
+        env:
+          MESA_REF: ${{ github.event.inputs.mesa_ref }}
+        run: |
+          cd mesa
+          # Refuse to build a driver that cannot enumerate the phone's GPU. This is the check the
+          # first CI driver was missing: it built, loaded, and found no physical device.
+          DEV=src/freedreno/common/freedreno_devices.py
+          test -f $DEV || { echo "::error::$DEV not found; HEAD is $(git rev-parse --short HEAD)"; exit 1; }
+          echo "--- Adreno 8xx entries in $DEV ---"
+          grep -oE 'a8[0-9]{2}[a-z_]*' $DEV | sort -u | tr '\n' ' '; echo
+          if ! grep -q 'a840' $DEV; then
+            echo "::error::this Mesa has no Adreno 840 in the device table: a driver built from it reports no Vulkan physical device on the phone. Use mesa_ref=main (27.x devel, the line Turnip V39 came from) or a commit that has a840."
+            exit 1
+          fi
+          echo "OK: a840 present"
+          grep -n -A3 'a840' $DEV | head -20
       - name: Configure (cross file for Android arm64)
         env:
           BT: ${{ github.event.inputs.build_type }}
         run: |
           cat > /tmp/android-aarch64.txt <<EOF
-          [binaries]
-          c = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang'
-          cpp = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++'
-          ar = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-          strip = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
-          pkg-config = 'pkg-config'
-          [host_machine]
-          system = 'android'
-          cpu_family = 'aarch64'
-          cpu = 'aarch64'
-          endian = 'little'
-          [properties]
-          android_api_level = 34
-          EOF
+[binaries]
+c = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang'
+cpp = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android34-clang++'
+ar = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+strip = '$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+pkg-config = 'pkg-config'
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'aarch64'
+endian = 'little'
+[properties]
+android_api_level = 34
+EOF
           cd mesa
           meson setup build-android \
             --cross-file /tmp/android-aarch64.txt \
@@ -161,6 +183,15 @@ jobs:
             fi
           done
           echo "OK: the driver only links Android system libraries"
+      - name: Check the driver names your GPU
+        run: |
+          cd mesa
+          SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
+          if $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strings $SO | grep -q 'Adreno (TM) 840'; then
+            echo "OK: the driver carries the Adreno 840 device entry"
+          else
+            echo "::warning::'Adreno (TM) 840' not found in the built .so; the device table may not have been compiled in"
+          fi
       - name: Package driver folder
         env:
           NAME: ${{ github.event.inputs.driver_name }}
@@ -169,24 +200,22 @@ jobs:
           mkdir -p out/$NAME
           cp mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so out/$NAME/
           $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded out/$NAME/libvulkan_freedreno.so || true
-          MESA_VER=$(cd mesa && git describe --tags --always 2>/dev/null || echo unknown)
-          MESA_COMMIT=$(cd mesa && git rev-parse --short HEAD)
           cat > out/$NAME/meta.json <<EOF
-          {
-            "name": "$NAME",
-            "description": "Turnip built by CI from $MESA_REF ($MESA_COMMIT)",
-            "author": "Mesa / freedreno",
-            "vendor": "Mesa",
-            "driverVersion": "$MESA_VER",
-            "minApi": 34,
-            "libraryName": "libvulkan_freedreno.so"
-          }
-          EOF
+{
+  "name": "$NAME",
+  "description": "Turnip built by CI from $MESA_REF ($MESA_COMMIT)",
+  "author": "Mesa / freedreno",
+  "vendor": "Mesa",
+  "driverVersion": "$MESA_REF-$MESA_COMMIT",
+  "minApi": 34,
+  "libraryName": "libvulkan_freedreno.so"
+}
+EOF
           ls -la out/$NAME/
           cat out/$NAME/meta.json
       - name: Upload driver
         uses: actions/upload-artifact@v4
         with:
-          name: turnip-${{ github.event.inputs.driver_name }}-${{ github.event.inputs.mesa_ref }}
+          name: turnip-${{ github.event.inputs.driver_name }}-${{ env.MESA_COMMIT }}
           path: out/
           retention-days: 30
