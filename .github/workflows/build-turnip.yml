@@ -135,7 +135,6 @@ jobs:
             -Db_lto=true \
             -Degl=disabled \
             -Dzstd=disabled \
-            -Dlibarchive=disabled \
             --wrap-mode=nodownload
 
       - name: Build
