@@ -9,11 +9,15 @@ name: Build Turnip Driver
 # Mesa source: the branch/tag below (change MESA_REF to try another build). The default is the
 # 25.2 branch, which is the line Turnip V39 came from.
 #
-# NOTE (build fix): Gallium's freedreno driver is *not* built here. When it is enabled next to
-# Turnip, Mesa forces Turnip to link libdrm (see meson.build:294 warning) and src/util/u_sync_provider.c
-# then includes <xf86drm.h>, which does not exist for the Android target -> run 1..7 all died at
-# "[192/661] u_sync_provider.c: fatal error: 'xf86drm.h' file not found". A Vulkan-only build has no
-# libdrm dependency at all, which is also what the launcher needs at runtime.
+# Build-scope decisions (each one came from a failing run):
+#  1. Vulkan only: no Gallium freedreno. With Gallium freedreno enabled, Mesa forces Turnip to link
+#     libdrm (meson.build:294) and src/util/u_sync_provider.c needs <xf86drm.h>, which does not exist
+#     for the Android target -> runs 1..7 all died at "u_sync_provider.c: fatal error: 'xf86drm.h'".
+#  2. No glvnd / GL / EGL: nothing in the driver needs them, they only drag host GL deps in.
+#  3. No SPIRV-Tools: it is a host-only dependency (meson.build:1834, only required when with_clc).
+#     If the package is installed in the image, meson finds it, defines HAVE_SPIRV_TOOLS, and
+#     src/compiler/spirv/vtn_debug.c then includes <spirv-tools/libspirv.h>, which the Android
+#     cross-compile cannot resolve (run 8). Leaving the package out keeps that macro undefined.
 
 on:
   workflow_dispatch:
@@ -44,11 +48,14 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             build-essential git python3-pip pkg-config \
-            libclang-dev libclc-18-dev libllvm18 llvm-18-dev \
             bison flex ninja-build git-lfs \
-            glslang-tools spirv-tools libzstd-dev zlib1g-dev \
-            libexpat1-dev \
+            glslang-tools zlib1g-dev \
             python3-setuptools python3-mako python3-numpy python3-yaml
+          # The host-only SPIRV-Tools files must be gone, otherwise dep_spirv_tools is found and
+          # HAVE_SPIRV_TOOLS makes vtn_debug.c include a header the Android target cannot see.
+          sudo apt-get remove -y -qq spirv-tools libspirv-tools-dev 2>/dev/null || true
+          sudo rm -rf /usr/lib/*/cmake/SPIRV-Tools /usr/lib/cmake/SPIRV-Tools \
+                     /usr/lib/*/pkgconfig/SPIRV-Tools.pc /usr/lib/pkgconfig/SPIRV-Tools.pc || true
           pip3 install --break-system-packages --upgrade "meson>=1.4" mako
           hash -r
           meson --version
@@ -107,6 +114,7 @@ jobs:
             -Dgles2=disabled \
             -Dzstd=disabled \
             -Dllvm=disabled \
+            -Dtools= \
             -Dvideo-codecs= \
             --wrap-mode=nodownload
       - name: Build
@@ -114,16 +122,19 @@ jobs:
           cd mesa
           ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so -j$(nproc)
           ls -la build-android/src/freedreno/vulkan/libvulkan_freedreno.so
-      - name: Check runtime dependencies
+      - name: Check the driver's runtime dependencies
         run: |
           cd mesa
           SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
-          $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d $SO | sed -n '1,40p'
-          if $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d $SO | grep -q 'libdrm'; then
-            echo "::error::driver still links libdrm, which does not exist on the phone"
-            exit 1
-          fi
-          echo "OK: no libdrm dependency"
+          READELF=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
+          $READELF -d $SO | sed -n '1,40p'
+          for bad in libdrm libGL libEGL libX11 libwayland-client; do
+            if $READELF -d $SO | grep -q "$bad"; then
+              echo "::error::driver links $bad, which does not exist on the phone"
+              exit 1
+            fi
+          done
+          echo "OK: the driver only links Android system libraries"
       - name: Package driver folder
         env:
           NAME: ${{ github.event.inputs.driver_name }}
