@@ -66,6 +66,32 @@ jobs:
           curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
           unzip -q /tmp/ndk.zip -d /opt
           echo "ANDROID_NDK=/opt/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+      - name: Point zlib at the NDK sysroot
+        run: |
+          # dependency('zlib') resolved to the *host* libz (/usr/lib/x86_64-linux-gnu/libz.so) and the
+          # final link failed with "ld.lld: error: libz.so is incompatible with aarch64linux" (run 9).
+          # The NDK ships its own libz for every API level, so hand meson a pkg-config file that
+          # points there and make sure the host pkg-config dirs are not searched.
+          API=34
+          SYS=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          test -f $SYS/usr/include/zlib.h && echo "OK: NDK zlib.h found"
+          mkdir -p /tmp/android-pc
+          cat > /tmp/android-pc/zlib.pc <<EOF
+          prefix=$SYS/usr
+          libdir=\${prefix}/lib/aarch64-linux-android/$API
+          includedir=\${prefix}/include
+          
+          Name: zlib
+          Description: zlib compression library (Android NDK)
+          Version: 1.3
+          Libs: -L\${libdir} -lz
+          Cflags: -I\${includedir}
+          EOF
+          # the heredoc above inherits the YAML block indentation, strip it so pkg-config can parse
+          sed -i 's/^ *//' /tmp/android-pc/zlib.pc
+          cat /tmp/android-pc/zlib.pc
+          echo "PKG_CONFIG_LIBDIR=/tmp/android-pc" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=" >> $GITHUB_ENV
       - name: Fetch Mesa
         env:
           MESA_REF: ${{ github.event.inputs.mesa_ref }}
