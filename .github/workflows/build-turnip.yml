@@ -41,7 +41,7 @@ jobs:
             build-essential git python3-pip pkg-config \
             libclang-dev libclc-18-dev libllvm18 llvm-18-dev \
             bison flex ninja-build git-lfs \
-            glslang-tools spirv-tools \
+            glslang-tools spirv-tools libzstd-dev zlib1g-dev \
             libdrm-dev libexpat1-dev libx11-dev libxext-dev libxfixes-dev \
             libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
             libxcb-sync-dev libxcb-xfixes0-dev libxshmfence-dev \
@@ -102,14 +102,8 @@ jobs:
             -Dfreedreno-kmds=kgsl \
             -Dbuild-tests=false \
             -Dgallium-rusticl=false \
-            -Dglx=disabled \
-            -Degl=disabled \
-            -Dgles2=disabled \
-            -Dopengl=false \
             -Dllvm=disabled \
             -Dvideo-codecs= \
-            -Dzstd=disabled \
-            -Dzlib=disabled \
             --wrap-mode=nodownload
 
       - name: Build
