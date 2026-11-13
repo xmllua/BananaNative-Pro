@@ -40,7 +40,14 @@ jobs:
           sudo apt-get install -y -qq \
             build-essential git python3-pip pkg-config \
             libclang-dev libclc-18-dev libllvm18 llvm-18-dev \
-            bison flex ninja-build meson git-lfs
+            bison flex ninja-build git-lfs \
+            glslang-tools spirv-tools \
+            libdrm-dev libexpat1-dev libx11-dev libxext-dev libxfixes-dev \
+            libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
+            libxcb-sync-dev libxcb-xfixes0-dev libxshmfence-dev \
+            libwayland-dev wayland-protocols \
+            libgtest-dev libzstd-dev libudev-dev \
+            python3-setuptools python3-mako python3-numpy python3-yaml
           pip3 install --break-system-packages --upgrade "meson>=1.4" mako
           hash -r
           meson --version
