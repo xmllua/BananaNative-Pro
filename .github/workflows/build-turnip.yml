@@ -97,6 +97,10 @@ jobs:
             echo ""
             echo "[properties]"
             echo "android_api_level = 34"
+            echo "needs_exe_wrapper = false"
+            echo ""
+            echo "[built-in options]"
+            echo "cpp_link_args = ['-static-libstdc++']"
           } > /tmp/cross.txt
           cat /tmp/cross.txt
           cd mesa
@@ -113,7 +117,7 @@ jobs:
           SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
           READELF=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
           $READELF -d $SO | sed -n '1,40p'
-          for bad in libdrm libGL libEGL libX11 libwayland-client; do
+          for bad in libdrm libGL libEGL libX11 libwayland-client libc++_shared; do
             if $READELF -d $SO | grep -q "$bad"; then
               echo "driver links $bad, absent on the phone"
               exit 1
