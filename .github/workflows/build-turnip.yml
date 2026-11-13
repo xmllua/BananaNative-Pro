@@ -186,17 +186,7 @@ jobs:
           mkdir -p out/$DRV
           cp mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so out/$DRV/
           $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded out/$DRV/libvulkan_freedreno.so || true
-          cat > out/$DRV/meta.json <<EOF
-{
-  "name": "$DRV",
-  "description": "Turnip built from $MREF ($MESA_COMMIT)",
-  "author": "Mesa / freedreno / whitebelyash",
-  "vendor": "Mesa",
-  "driverVersion": "$MREF-$MESA_COMMIT",
-  "minApi": 34,
-  "libraryName": "libvulkan_freedreno.so"
-}
-EOF
+          printf '{\n  "name": "%s",\n  "description": "Turnip built from %s (%s)",\n  "author": "Mesa / freedreno / whitebelyash",\n  "vendor": "Mesa",\n  "driverVersion": "%s-%s",\n  "minApi": 34,\n  "libraryName": "libvulkan_freedreno.so"\n}\n' "$DRV" "$MREF" "$MESA_COMMIT" "$MREF" "$MESA_COMMIT" > out/$DRV/meta.json
           ls -la out/$DRV/
           cat out/$DRV/meta.json
 
