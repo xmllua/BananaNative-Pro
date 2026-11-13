@@ -132,7 +132,6 @@ jobs:
             -Dvulkan-drivers=freedreno \
             -Dvulkan-beta=true \
             -Dfreedreno-kmds=kgsl \
-            -Db_lto=true \
             -Degl=disabled \
             -Dzstd=disabled \
             --wrap-mode=nodownload
