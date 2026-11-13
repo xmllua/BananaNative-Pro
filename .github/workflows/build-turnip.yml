@@ -107,6 +107,7 @@ jobs:
             -Degl=enabled \
             -Dgles1=disabled \
             -Dgles2=enabled \
+            -Dzstd=disabled \
             -Dllvm=disabled \
             -Dvideo-codecs= \
             --wrap-mode=nodownload
