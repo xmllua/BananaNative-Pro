@@ -1,0 +1,201 @@
+name: Build Turnip Driver
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_repo:
+        description: 'Mesa source repository'
+        required: false
+        default: 'https://github.com/whitebelyash/mesa-unified.git'
+      mesa_ref:
+        description: 'branch/tag/commit (turnip/gen8 has the real Adreno 8xx tables)'
+        required: true
+        default: 'turnip/gen8'
+      driver_name:
+        description: 'Driver folder name in the launcher'
+        required: true
+        default: 'Turnip-Gen8'
+      build_type:
+        description: 'release or debug'
+        required: true
+        default: 'release'
+
+jobs:
+  build-turnip:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/* 2>/dev/null || true
+          df -h /
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git python3-pip pkg-config bison flex ninja-build glslang-tools zlib1g-dev python3-setuptools python3-mako python3-numpy python3-yaml python3-ply
+          sudo apt-get remove -y -qq spirv-tools libspirv-tools-dev 2>/dev/null || true
+          rm -rf /usr/lib/*/cmake/SPIRV-Tools /usr/lib/cmake/SPIRV-Tools 2>/dev/null || true
+          python3 -m pip install --break-system-packages -q "meson>=1.4" mako
+          hash -r
+          meson --version
+
+      - name: Set up Android NDK
+        run: |
+          NDK_VERSION=r27c
+          echo "NDK_VERSION=$NDK_VERSION" >> $GITHUB_ENV
+          curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
+          unzip -q /tmp/ndk.zip -d /opt
+          echo "ANDROID_NDK=/opt/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
+
+      - name: Point zlib at the NDK sysroot
+        run: |
+          API=34
+          SYS=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot
+          test -f $SYS/usr/include/zlib.h && echo "NDK zlib.h found"
+          mkdir -p /tmp/android-pc
+          printf 'prefix=%s/usr\nlibdir=${prefix}/lib/aarch64-linux-android/%s\nincludedir=${prefix}/include\n\nName: zlib\nDescription: zlib (Android NDK)\nVersion: 1.3\nLibs: -L${libdir} -lz\nCflags: -I${includedir}\n' "$SYS" "$API" > /tmp/android-pc/zlib.pc
+          cat /tmp/android-pc/zlib.pc
+          echo "PKG_CONFIG_LIBDIR=/tmp/android-pc" >> $GITHUB_ENV
+          echo "PKG_CONFIG_PATH=" >> $GITHUB_ENV
+
+      - name: Fetch Mesa
+        env:
+          REF: ${{ github.event.inputs.mesa_ref }}
+          SRC_IN: ${{ github.event.inputs.mesa_repo }}
+        run: |
+          WANT="${REF:-turnip/gen8}"
+          SRC="${SRC_IN:-https://github.com/whitebelyash/mesa-unified.git}"
+          echo "mesa repo: $SRC"
+          echo "mesa ref:  $WANT"
+          git init mesa
+          cd mesa
+          git remote add origin "$SRC"
+          git fetch --depth 1 origin "$WANT" || git fetch --depth 1 origin turnip/gen8
+          git checkout -q FETCH_HEAD
+          git log --oneline -1
+          echo "MESA_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Check the device table for the phone GPU
+        run: |
+          cd mesa
+          DEV=src/freedreno/common/freedreno_devices.py
+          test -f $DEV || { echo "no $DEV at $(git rev-parse --short HEAD)"; exit 1; }
+          echo "--- Adreno 840 entries ---"
+          grep -n 'Adreno (TM) 840' $DEV || true
+          if ! grep -q 'Adreno (TM) 840' $DEV; then
+            echo "no Adreno 840 in this Mesa: the driver would report no Vulkan physical device."
+            exit 1
+          fi
+          echo "--- layout (CCU / slices must match the phone) ---"
+          grep -n -A9 'Adreno (TM) 840' $DEV | grep -E 'chip_id|num_ccu|num_slices|tile_align_w|cs_shared_mem_size' || true
+          if grep -q '44050A31' $DEV; then
+            echo "OK: a840 = 0xffff44050A31 (the gen8 branch layout)"
+          elif grep -q '44050A21' $DEV; then
+            echo "::warning::a840 = 0xffff44050A21 (the main-branch layout). Check CCU/slice counts above."
+          fi
+
+      - name: Configure
+        env:
+          BT: ${{ github.event.inputs.build_type }}
+        run: |
+          NDKTOOL=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin
+          {
+            echo "[binaries]"
+            echo "c = '$NDKTOOL/aarch64-linux-android34-clang'"
+            echo "cpp = '$NDKTOOL/aarch64-linux-android34-clang++'"
+            echo "ar = '$NDKTOOL/llvm-ar'"
+            echo "strip = '$NDKTOOL/llvm-strip'"
+            echo "pkg-config = 'pkg-config'"
+            echo ""
+            echo "[host_machine]"
+            echo "system = 'android'"
+            echo "cpu_family = 'aarch64'"
+            echo "cpu = 'aarch64'"
+            echo "endian = 'little'"
+            echo ""
+            echo "[properties]"
+            echo "android_api_level = 34"
+            echo ""
+            echo "[built-in options]"
+            echo "cpp_link_args = ['-static-libstdc++']"
+          } > /tmp/cross.txt
+          cat /tmp/cross.txt
+          cd mesa
+          BTYPE="${BT:-release}"
+          meson setup build-android \
+            --cross-file /tmp/cross.txt \
+            --buildtype="$BTYPE" \
+            -Dplatforms=android \
+            -Dplatform-sdk-version=34 \
+            -Dandroid-stub=true \
+            -Dgallium-drivers= \
+            -Dvulkan-drivers=freedreno \
+            -Dvulkan-beta=true \
+            -Dfreedreno-kmds=kgsl \
+            -Db_lto=true \
+            -Degl=disabled \
+            -Dzstd=disabled \
+            -Dlibarchive=disabled \
+            --wrap-mode=nodownload
+
+      - name: Build
+        run: |
+          cd mesa
+          ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so -j$(nproc)
+          ls -la build-android/src/freedreno/vulkan/libvulkan_freedreno.so
+
+      - name: Check runtime dependencies
+        run: |
+          cd mesa
+          SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
+          READELF=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf
+          $READELF -d $SO | sed -n '1,40p'
+          for bad in libdrm libGL libEGL libX11 libwayland-client libc++_shared; do
+            if $READELF -d $SO | grep -q "$bad"; then
+              echo "driver links $bad, which is absent on the phone"
+              exit 1
+            fi
+          done
+          echo "ok: only Android system libraries"
+
+      - name: Check the gralloc path and the GPU entry
+        run: |
+          cd mesa
+          SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
+          STR=$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strings
+          if $STR $SO | grep -q 'Adreno (TM) 840'; then
+            echo "ok: the a840 device entry is in the driver"
+          else
+            echo "::warning::'Adreno (TM) 840' not found in the .so"
+          fi
+          # V39 links libvndksupport and carries AIMapper_loadIMapper; a stub-only gralloc path
+          # cannot import gralloc buffers, which is the difference that matters here.
+          if $STR $SO | grep -q 'AIMapper_loadIMapper'; then
+            echo "ok: the AIMapper (gralloc) path is compiled in"
+          else
+            echo "::warning::no AIMapper_loadIMapper: the gralloc path is stubbed out"
+          fi
+
+      - name: Package driver folder
+        env:
+          NAME: ${{ github.event.inputs.driver_name }}
+          REF: ${{ github.event.inputs.mesa_ref }}
+        run: |
+          DRV="${NAME:-Turnip-Gen8}"
+          MREF="${REF:-turnip/gen8}"
+          mkdir -p out/$DRV
+          cp mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so out/$DRV/
+          $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-unneeded out/$DRV/libvulkan_freedreno.so || true
+          cat > out/$DRV/meta.json <<EOF
+{
+  "name": "$DRV",
+  "description": "Turnip built from $MREF ($MESA_COMMIT)",
+  "author": "Mesa / freedreno / whitebelyash",
+  "vendor": "Mesa",
+  "driverVersion": "$MREF-$MESA_COMMIT",
+  "minApi": 34,
+  "libraryName": "libvulkan_freedreno.so"
+}
+EOF
+          ls -la out/$DRV/
+          cat out/$DRV/meta.json
