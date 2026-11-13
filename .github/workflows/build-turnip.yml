@@ -8,6 +8,12 @@ name: Build Turnip Driver
 #
 # Mesa source: the branch/tag below (change MESA_REF to try another build). The default is the
 # 25.2 branch, which is the line Turnip V39 came from.
+#
+# NOTE (build fix): Gallium's freedreno driver is *not* built here. When it is enabled next to
+# Turnip, Mesa forces Turnip to link libdrm (see meson.build:294 warning) and src/util/u_sync_provider.c
+# then includes <xf86drm.h>, which does not exist for the Android target -> run 1..7 all died at
+# "[192/661] u_sync_provider.c: fatal error: 'xf86drm.h' file not found". A Vulkan-only build has no
+# libdrm dependency at all, which is also what the launcher needs at runtime.
 
 on:
   workflow_dispatch:
@@ -33,7 +39,6 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk/* 2>/dev/null || true
           df -h /
-
       - name: Install build tools
         run: |
           sudo apt-get update -qq
@@ -42,16 +47,11 @@ jobs:
             libclang-dev libclc-18-dev libllvm18 llvm-18-dev \
             bison flex ninja-build git-lfs \
             glslang-tools spirv-tools libzstd-dev zlib1g-dev \
-            libdrm-dev libexpat1-dev libx11-dev libxext-dev libxfixes-dev \
-            libxcb1-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev \
-            libxcb-sync-dev libxcb-xfixes0-dev libxshmfence-dev \
-            libwayland-dev wayland-protocols \
-            libgtest-dev libzstd-dev libudev-dev \
+            libexpat1-dev \
             python3-setuptools python3-mako python3-numpy python3-yaml
           pip3 install --break-system-packages --upgrade "meson>=1.4" mako
           hash -r
           meson --version
-
       - name: Set up Android NDK
         run: |
           NDK_VERSION=r27c
@@ -59,7 +59,6 @@ jobs:
           curl -sSL -o /tmp/ndk.zip "https://dl.google.com/android/repository/android-ndk-${NDK_VERSION}-linux.zip"
           unzip -q /tmp/ndk.zip -d /opt
           echo "ANDROID_NDK=/opt/android-ndk-${NDK_VERSION}" >> $GITHUB_ENV
-
       - name: Fetch Mesa
         env:
           MESA_REF: ${{ github.event.inputs.mesa_ref }}
@@ -70,7 +69,6 @@ jobs:
               git clone --depth 1 --branch "$MESA_REF" https://gitlab.freedesktop.org/mesa/mesa.git mesa
             }
           cd mesa && git log --oneline -1
-
       - name: Configure (cross file for Android arm64)
         env:
           BT: ${{ github.event.inputs.build_type }}
@@ -97,27 +95,35 @@ jobs:
             -Dplatforms=android \
             -Dplatform-sdk-version=34 \
             -Dandroid-stub=true \
-            -Dgallium-drivers=freedreno \
+            -Dgallium-drivers= \
             -Dvulkan-drivers=freedreno \
             -Dfreedreno-kmds=kgsl \
             -Dbuild-tests=false \
             -Dgallium-rusticl=false \
             -Dglx=disabled \
-            -Dopengl=true \
-            -Degl=enabled \
+            -Dopengl=false \
+            -Degl=disabled \
             -Dgles1=disabled \
-            -Dgles2=enabled \
+            -Dgles2=disabled \
             -Dzstd=disabled \
             -Dllvm=disabled \
             -Dvideo-codecs= \
             --wrap-mode=nodownload
-
       - name: Build
         run: |
           cd mesa
           ninja -C build-android src/freedreno/vulkan/libvulkan_freedreno.so -j$(nproc)
           ls -la build-android/src/freedreno/vulkan/libvulkan_freedreno.so
-
+      - name: Check runtime dependencies
+        run: |
+          cd mesa
+          SO=build-android/src/freedreno/vulkan/libvulkan_freedreno.so
+          $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d $SO | sed -n '1,40p'
+          if $ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf -d $SO | grep -q 'libdrm'; then
+            echo "::error::driver still links libdrm, which does not exist on the phone"
+            exit 1
+          fi
+          echo "OK: no libdrm dependency"
       - name: Package driver folder
         env:
           NAME: ${{ github.event.inputs.driver_name }}
@@ -141,7 +147,6 @@ jobs:
           EOF
           ls -la out/$NAME/
           cat out/$NAME/meta.json
-
       - name: Upload driver
         uses: actions/upload-artifact@v4
         with:
