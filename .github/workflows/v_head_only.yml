@@ -1,0 +1,27 @@
+name: Build Turnip Driver
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_repo:
+        description: 'Mesa source repository'
+        required: false
+        default: 'https://github.com/whitebelyash/mesa-unified.git'
+      mesa_ref:
+        description: 'branch/tag/commit (turnip/gen8 has the real Adreno 8xx tables)'
+        required: true
+        default: 'turnip/gen8'
+      driver_name:
+        description: 'Driver folder name in the launcher'
+        required: true
+        default: 'Turnip-Gen8'
+      build_type:
+        description: 'release or debug'
+        required: true
+        default: 'release'
+
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hi
