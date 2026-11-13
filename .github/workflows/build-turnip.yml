@@ -103,7 +103,6 @@ jobs:
             -Dbuild-tests=false \
             -Dgallium-rusticl=false \
             -Dglx=disabled \
-            -Dglx-tls=false \
             -Dopengl=true \
             -Degl=enabled \
             -Dgles1=disabled \
