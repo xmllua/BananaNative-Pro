@@ -447,6 +447,15 @@ final class SidePanel extends FrameLayout {
             fp16.setChecked(Prefs.fp16(act, game()));
             fp16.setOnCheckedChangeListener((b, on) -> Prefs.fp16(act, game(), on));
             box.addView(fp16);
+            // Full vegetation (a profile that lists the draws): off hides selected grass and foliage mesh draws to
+            // cut GPU work; applies at the next start (DM_VK_VEGETATION=0)
+            if (Profile.of(game()) != null && Profile.of(game()).vegetationDetail) {
+                android.widget.CheckBox veg = new android.widget.CheckBox(act);
+                veg.setText("完整植被（关闭减少GPU负载，下次启动生效）");
+                veg.setChecked(Prefs.fullVegetation(act, game()));
+                veg.setOnCheckedChangeListener((b, on) -> Prefs.fullVegetation(act, game(), on));
+                box.addView(veg);
+            }
         }
 
         lsfgNow = Lsfg.rows(act, box, "", () -> { Lsfg.push(act); refresh(); });
