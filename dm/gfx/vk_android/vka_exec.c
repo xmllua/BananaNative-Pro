@@ -18,7 +18,11 @@ typedef struct { uint64_t serial; p_set_rt rt; int has_rt; p_scissor sc; int has
 static qstate S;
 enum { NQS = 8 };
 static qstate g_qs[NQS]; static int g_nqs;
-enum { NSLOT = 8 };
+// Slots the submissions rotate through. It was 8: Ocarina of Time submits 10-13 times a frame (its own submits plus the parts DM_VK_CHUNK cuts), so a slot came round
+// again inside the frame it was made for, and mtl_sub_begin waited for that slot's GPU fence (vka_wait_done, UINT64_MAX). The CPU then stalled on the GPU while the GPU
+// stalled on the CPU's recording: submission start went from 1.5 to 10-18 ms a frame and the GPU idled a quarter of it (a submission's fence is the timeline value its
+// commit signalled, so a slot only has to outlast the frames in flight, not the GPU's whole queue)
+enum { NSLOT = 16 };
 enum { NCHUNK = 32 };
 static struct { VkCommandBuffer cb; uint64_t fence; VkCommandBuffer x[NCHUNK]; VkFence vf; int vf_on; } g_slot[NSLOT];   // vf: set when its commit had no timeline signal (vf_on)   // x: the command buffers a submission goes on in once it hands its first part to the queue (chunk)
 static unsigned g_slot_i;
@@ -49,7 +53,8 @@ enum { RCM_MAX = 1u << 20 };   // addresses kept at most (24 MB): a condition on
 static rc_ent *g_rcm; static uint32_t g_rcm_cap, g_rcm_n;
 static uint64_t g_n_sub;   // (the submission count, below)
 static int g_rc_rec;       // a submission (number g_n_sub) is being recorded: mtl_sub_begin to its commit
-static struct { uint64_t sub, fence; } g_rc_subf[64];   // the fences of the latest submissions by number (sub_commit)
+static struct { uint64_t sub, fence; } g_rc_subf[NSLOT * 8];   // the fences of the latest submissions by number (sub_commit); NSLOT * 8 as before
+                                                                  // (64 at NSLOT 8): a submission older than the slots can be is done anyway
 static rc_ent *rcm_find(uint64_t a) {
     if (!g_rcm_cap || !a) return NULL;
     for (uint32_t i = (uint32_t)(a >> 4) & (g_rcm_cap - 1);; i = (i + 1) & (g_rcm_cap - 1)) { if (g_rcm[i].addr == a) return &g_rcm[i]; if (!g_rcm[i].addr) return NULL; }
@@ -71,9 +76,9 @@ static void rc_note(uint64_t a, uint32_t kind) {   // a report recorded at a
 }
 static int rc_sub_done(uint64_t s) {   // submission s has completed (its reports are in memory)
     if (g_rc_rec && s == g_n_sub) return 0;
-    unsigned k = s % 64;
+    unsigned k = s % (NSLOT * 8);
     if (g_rc_subf[k].sub == s) return g_rc_subf[k].fence <= vka_done();
-    return 1;   // 64 or more submissions old: done (mtl_sub_begin waits for a slot's fence before reusing it, and there are NSLOT)
+    return 1;   // NSLOT * 8 or more submissions old: done (mtl_sub_begin waits for a slot's fence before reusing it, and there are NSLOT)
 }
 static int g_rcl = -1; static _Atomic uint64_t g_rc_done;   // DM_VK_RC_LOG lines left (rcl_op); the latest submission whose reports post_run has written
 
@@ -349,7 +354,8 @@ static struct { PFN_vkCreateQueryPool create; PFN_vkCmdResetQueryPool reset; PFN
 static VkQueryPool g_qp; static int g_ts_ok = -1; static double g_ts_ns;   // nanoseconds per tick
 enum { GRING = 64 };
 static struct { _Atomic uint64_t frame, ns, t0, t1, span; _Atomic int pending; } g_gpu[GRING];
-static uint64_t g_slot_frame[8]; static uint8_t g_slot_ts[8]; static uint32_t g_slot_parts[8]; static uint32_t g_part_seen;
+static uint64_t g_slot_frame[NSLOT]; static uint8_t g_slot_ts[NSLOT]; static uint32_t g_slot_parts[NSLOT]; static uint32_t g_part_seen;
+    // sized by NSLOT: these were [8] while NSLOT was 8, and a slot above 7 wrote past them once NSLOT grew
 enum { QPS = 2 * (NCHUNK + 1) };   // queries a slot: a top and a bottom per part
 static int ts_init(void) {
     if (g_ts_ok >= 0) return g_ts_ok;
@@ -641,7 +647,7 @@ uint64_t vka_rp_sub_commit_sig(uint64_t reserved, uint64_t signal) { uint64_t t0
 static uint64_t sub_commit(uint64_t reserved, int has_sig, uint64_t signal) {
     uint64_t fence = reserved ? reserved : vka_fence_next(); g_cur_fence = 0;
     if (!has_sig) signal = fence;
-    if (g_rc_rec) { g_rc_subf[g_n_sub % 64].sub = g_n_sub; g_rc_subf[g_n_sub % 64].fence = fence; g_rc_rec = 0; }   // (rc_sub_done)
+    if (g_rc_rec) { g_rc_subf[g_n_sub % (NSLOT * 8)].sub = g_n_sub; g_rc_subf[g_n_sub % (NSLOT * 8)].fence = fence; g_rc_rec = 0; }   // (rc_sub_done)
     vka_draw_peek_commit(fence);   // DM_VK_SB_PEEK: this submission's storage buffers, read again once it has completed
     int tail = 0;   // counted for the tail floor (DM_VK_GPU_FLOOR_AUTO=2): given back by the span op when it completes
     if (g_cb && g_stat_draws > g_sub_draws0) { int vka_floor_tail_add(void); tail = vka_floor_tail_add(); post((pop){3, 0, (uint32_t)tail, 0, g_job_frame_set ? g_job_frame : g_frame}); }   // the frame's span at the end of this submission with draws (post_run)
